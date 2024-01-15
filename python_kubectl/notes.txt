@@ -1,0 +1,6 @@
+docker build -t python-kubectl .
+
+docker tag python-kubectl hayone/python-kubectl:0.0.3
+docker tag python-kubectl hayone/python-kubectl:latest
+docker push hayone/python-kubectl:0.0.3
+docker push hayone/python-kubectl:latest
