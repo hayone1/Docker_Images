@@ -7,6 +7,10 @@ on:
                 description: 'Folder name containing the Dockerfile'
                 required: true
                 default: 'blue-agent'
+            version_tag:
+                description: 'Version to tag the container image with'
+                required: true
+                default: 'latest'
 
 jobs:
   push_to_registry:
@@ -42,7 +46,7 @@ jobs:
           context: .
           file: "./${{ github.event.inputs.image_folder }}/Dockerfile"
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.meta.outputs.tags }},${{ env.NAMESPACE }}/${{ github.event.inputs.image_folder }}:${{ github.event.inputs.version_tag }}
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Generate artifact attestation
