@@ -1,8 +1,11 @@
 FROM ghcr.io/coder/podman:ubuntu
 USER root
 
-# Use a base image
-FROM ubuntu:20.04
+RUN gpg -k
+
+RUN gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+
+RUN echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
 
 RUN apt-get update \
 	&& apt-get install -y \
@@ -10,9 +13,25 @@ RUN apt-get update \
 	git \
 	sudo \
 	vim \
-	python3-pip \
+	python3-pip k6\
 	tar gzip unzip \
+	&& apt-get autoremove -y \
 	&& rm -rf /var/lib/apt/lists/*
+
+# Install pipenv
+RUN pip install pipenv
+
+#install node & npm
+ENV NODE_VERSION=16.13.0
+RUN apt install -y curl
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+ENV NVM_DIR=/root/.nvm
+RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION}
+RUN . "$NVM_DIR/nvm.sh" && nvm use v${NODE_VERSION}
+RUN . "$NVM_DIR/nvm.sh" && nvm alias default v${NODE_VERSION}
+ENV PATH="/root/.nvm/versions/node/v${NODE_VERSION}/bin/:${PATH}"
+RUN node --version
+RUN npm --version
 
 # Install Helm
 RUN echo -e "Installing helm..." && \
@@ -100,7 +119,7 @@ RUN export FLUX_VERSION="2.0.0" && \
 # Install Argo CLI
 RUN echo -e "Installing Argo CLI..." && \
     ARGO_VERSION='v3.5.1' && \
-    curl -LO --silent https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-amd64.gz && \
+    curl -LO https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-amd64.gz && \
     gzip -d -f argo-linux-amd64.gz && \
     mv argo-linux-amd64 argo && \
     chmod +x argo && \
@@ -114,14 +133,58 @@ RUN echo -e "Installing kpt..." && \
 	tar -xzf kpt_linux_amd64-${KPT_VERSION}.tar.gz && \
 	chmod +x kpt && \
 	mv kpt /usr/local/bin/ && \
-	kpt version
+	kpt version && \
+    rm kpt_linux_amd64-${KPT_VERSION}.tar.gz
 
+# install subctl
+RUN echo -e "Installing subctl..." && \
+    curl -Ls https://get.submariner.io > get-submariner.sh && \
+    chmod +x get-submariner.sh && \
+    ./get-submariner.sh && \
+    rm get-submariner.sh
+
+# Install mongosh
+RUN echo -e "Installing mongosh..." && \
+    MongoSH_VERSION='2.1.3' && \
+    curl -LO --silent "https://downloads.mongodb.com/compass/mongosh-${MongoSH_VERSION}-linux-x64.tgz" && \
+	tar -xzf mongosh-${MongoSH_VERSION}-linux-x64.tgz && \
+	chmod +x mongosh-${MongoSH_VERSION}-linux-x64/bin/mongosh && \
+	mv mongosh-${MongoSH_VERSION}-linux-x64/bin/mongosh /usr/local/bin/ && \
+	mv mongosh-${MongoSH_VERSION}-linux-x64/bin/mongosh_crypt_v1.so /usr/local/bin/ && \
+	mongosh --version && \
+    rm -r mongosh-${MongoSH_VERSION}-linux-x64
+
+# Install bytebase
+RUN echo -e "Installing bytebase..." && \
+    curl -fsSL -o get_bytebase.sh https://raw.githubusercontent.com/bytebase/install/HEAD/install.sh && \
+    chmod +x get_bytebase.sh && \
+    ./get_bytebase.sh && \
+    bb --help && \
+    rm get_bytebase.sh
+
+# Install crossplane
+RUN echo -e "Installing crossplane..." && \
+    curl -fsSL -o get_crossplane.sh https://raw.githubusercontent.com/crossplane/crossplane/master/install.sh && \
+    chmod +x get_crossplane.sh && \
+    ./get_crossplane.sh && \
+    mv crossplane /usr/local/bin && \
+    crossplane --version && \
+    rm get_crossplane.sh
+    
+# Install crossplane
+RUN echo -e "Installing crossplane..." && \
+    curl -fsSL -o get_crossplane.sh https://raw.githubusercontent.com/crossplane/crossplane/master/install.sh && \
+    chmod +x get_crossplane.sh && \
+    ./get_crossplane.sh && \
+    mv crossplane /usr/local/bin && \
+    crossplane --version && \
+    rm get_crossplane.sh
 
 ARG USER=coder
 RUN useradd --groups sudo --no-create-home --shell /bin/bash ${USER} \
 	&& echo "${USER} ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/${USER} \
 	&& chmod 0440 /etc/sudoers.d/${USER}
-RUN apt-get autoremove -y && \
-	rm -rf /var/lib/apt/lists/*
+# RUN apt-get autoremove -y && \
+# 	rm -rf /var/lib/apt/lists/*
 USER ${USER}
 WORKDIR /home/${USER}

@@ -1,0 +1,7 @@
+docker build -t blue-agent-maven .
+
+docker tag blue-agent-maven hayone/blue-agent-maven:bookworm-12.0.1
+docker tag blue-agent-maven hayone/blue-agent-maven:latest
+docker push hayone/blue-agent-maven:bookworm-12.0.1
+docker push hayone/blue-agent-maven:latest
+

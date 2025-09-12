@@ -1,12 +1,7 @@
-# ARG http_proxy=http://10.1.178.150:8080/
-# ARG https_proxy=http://10.1.178.150:8080/
 
 docker build -t coder-podman .  
 
 docker tag coder-podman hayone/coder-podman:latest
-docker tag coder-podman hayone/coder-podman:0.0.2
+docker tag coder-podman hayone/coder-podman:0.0.7
 docker push hayone/coder-podman:latest
-docker push hayone/coder-podman:0.0.2
-
-docker tag coder-podman registry.tecnotree.com/mtn-nigeria/hayone/podman
-docker push registry.tecnotree.com/mtn-nigeria/hayone/podman:latest
+docker push hayone/coder-podman:0.0.7

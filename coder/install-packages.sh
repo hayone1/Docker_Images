@@ -22,6 +22,7 @@ rm get_helm.sh
 helm version
 ) &
 
+
 # - Install kubectl
 (
 echo -e "${YELLOW}Installing kubectl...${RESET}"
@@ -137,7 +138,7 @@ rm kubeval-linux-amd64.tar.gz
 
 # install flux CLI
 (
-export FLUX_VERSION="2.0.0"
+export FLUX_VERSION="2.0.1"
 curl -s https://fluxcd.io/install.sh > install_flux.sh
 sudo chmod +x install_flux.sh
 ./install_flux.sh
@@ -207,7 +208,32 @@ curl -Ls https://get.submariner.io >> get-submariner.sh
 sudo chmod +x get-submariner.sh
 ./get-submariner.sh
 )
+
+# - Install bytebase
+(
+echo -e "${YELLOW}Installing bytebase...${RESET}"
+curl -fsSL -o get_bytebase.sh https://raw.githubusercontent.com/bytebase/install/HEAD/install.sh
+sudo chmod +x get_bytebase.sh
+./get_bytebase.sh
+rm get_bytebase.sh
+bb --help
+) &
+
+# Install mongosh
+(
+echo -e "${YELLOW}Installing mongosh...${RESET}"
+MongoSH_VERSION='2.1.3'
+curl -LO --silent "https://downloads.mongodb.com/compass/mongosh-${MongoSH_VERSION}-linux-x64.tgz"
+tar -xzf mongosh-${MongoSH_VERSION}-linux-x64.tgz
+sudo chmod +x mongosh-${MongoSH_VERSION}-linux-x64/bin/mongosh
+sudo mv mongosh-${MongoSH_VERSION}-linux-x64/bin/mongosh /usr/local/bin/
+sudo mv mongosh-${MongoSH_VERSION}-linux-x64/bin/mongosh_crypt_v1.so /usr/local/bin/
+mongosh --version
+rm -r mongosh-${MongoSH_VERSION}-linux-x64
+) &
 wait
+
+
 
 # sudo chmod +x post-install.sh
 echo -e "${GREEN}prerequisites installed${RESET}"
