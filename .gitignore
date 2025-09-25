@@ -1,0 +1,21 @@
+# IDE specific files
+.idea/
+.vscode/
+
+# Build artifacts
+target/
+build/
+dist/
+
+# Dependency directories (if not managed by Docker)
+node_modules/
+vendor/
+
+# Environment variables
+.env
+
+# Log files
+*.log
+
+# Docker-related files that might be generated locally but not committed
+docker-compose.yml.local
