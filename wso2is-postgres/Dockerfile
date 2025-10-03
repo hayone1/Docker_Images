@@ -58,9 +58,6 @@ RUN set -eux; \
     ; \
     rm -rf /tmp/openjdk.tar.gz;
 
-ENV JAVA_HOME=/opt/java/openjdk \
-    PATH="/opt/java/openjdk/bin:$PATH" ENV=${USER_HOME}"/.ashrc"
-
 # Set Docker image build arguments.
 # Build arguments for user/group configurations.
 ARG USER=wso2carbon
@@ -86,6 +83,9 @@ ARG MOTD='printf "\n\
  which is under the Apache License, Version 2.0. \n\
  Read more about Apache License, Version 2.0 here @ http://www.apache.org/licenses/LICENSE-2.0.\n"'
 
+ENV JAVA_HOME=/opt/java/openjdk \
+    PATH="/opt/java/openjdk/bin:$PATH" ENV=${USER_HOME}"/.ashrc"
+
 # Create the non-root user and group and set MOTD login message.
 RUN \
     addgroup -S -g ${USER_GROUP_ID} ${USER_GROUP} \
@@ -101,7 +101,7 @@ RUN \
     && chown -R ${USER}:${USER_GROUP} ${USER_HOME}/.java
 
 # Copy init script to user home.
-COPY --chown=${USER}:wso2 docker-entrypoint.sh /home/${USER}/
+COPY --chown=${USER}:wso2 docker-entrypoint.sh ${USER_HOME}/
 
 # Install required packages.
 RUN \
