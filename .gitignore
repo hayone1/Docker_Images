@@ -19,3 +19,5 @@ vendor/
 
 # Docker-related files that might be generated locally but not committed
 docker-compose.yml.local
+
+*.tgz
