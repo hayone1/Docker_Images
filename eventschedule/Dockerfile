@@ -1,4 +1,4 @@
-FROM registry.suse.com/bci/php:8
+FROM registry.suse.com/bci/php-fpm:8
 
 ARG VERSION=v1.0.36
 
