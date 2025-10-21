@@ -1,4 +1,4 @@
-FROM registry.suse.com/bci/php-fpm:8
+FROM php:7.1-apache
 
 ARG VERSION=v1.0.36
 
