@@ -16,7 +16,11 @@ RUN unzip /tmp/eventschedule.zip -d /opt/eventschedule && \
     rm -rf /tmp/eventschedule.zip
 
 ENV APACHE_DOCUMENT_ROOT /srv/www/htdocs/public
-
+# Allow setting custom DocumentRoot
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
 RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+
+# 3. Update AllowOverride from 'None' to 'All'
+# This should cover your DocumentRoot directory block and any other necessary blocks.
+RUN sed -i -e "s/AllowOverride None/AllowOverride All/g" /etc/apache2/sites-available/*.conf /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
