@@ -26,6 +26,3 @@ RUN sed -i -e "s/AllowOverride None/AllowOverride All/g" /etc/apache2/sites-avai
 
 # Enable mod_rewrite
 RUN a2enmod rewrite
-
-sed -i -e "s/APP_URL=/APP_URL=https://eventschedule-dev.exoduschurch.global/g"
-APP_URL=
