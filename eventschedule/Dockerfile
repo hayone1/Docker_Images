@@ -3,7 +3,7 @@ FROM php:8.4.13-apache
 ARG VERSION=v1.0.36
 
 RUN docker-php-source extract \
-	&& docker-php-ext-install pdo_mysql \
+	&& docker-php-ext-install pdo_mysql mysqli \
 	&& docker-php-source delete
 
 ADD https://github.com/eventschedule/eventschedule/releases/download/${VERSION}/eventschedule.zip /tmp/eventschedule.zip
@@ -27,3 +27,5 @@ RUN sed -i -e "s/AllowOverride None/AllowOverride All/g" /etc/apache2/sites-avai
 # Enable mod_rewrite
 RUN a2enmod rewrite
 
+sed -i -e "s/APP_URL=/APP_URL=https://eventschedule-dev.exoduschurch.global/g"
+APP_URL=
