@@ -2,15 +2,22 @@ FROM php:8.4.13-apache
 
 ARG VERSION=v1.0.36
 
+RUN apt-get update && \
+    apt-get install -y \
+    unzip \
+    libfreetype-dev \
+    libjpeg62-turbo-dev \
+    libpng-dev \
+    zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN docker-php-source extract \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) gd \
 	&& docker-php-ext-install pdo_mysql mysqli \
 	&& docker-php-source delete
 
 ADD https://github.com/eventschedule/eventschedule/releases/download/${VERSION}/eventschedule.zip /tmp/eventschedule.zip
-
-RUN apt-get update && \
-    apt-get install -y unzip && \
-    rm -rf /var/lib/apt/lists/*
 
 RUN unzip /tmp/eventschedule.zip -d /opt/eventschedule && \
     rm -rf /tmp/eventschedule.zip
