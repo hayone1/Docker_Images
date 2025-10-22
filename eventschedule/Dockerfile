@@ -24,3 +24,6 @@ RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 # This should cover your DocumentRoot directory block and any other necessary blocks.
 RUN sed -i -e "s/AllowOverride None/AllowOverride All/g" /etc/apache2/sites-available/*.conf /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
+# Enable mod_rewrite
+RUN a2enmod rewrite
+
