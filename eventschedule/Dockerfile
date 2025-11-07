@@ -2,6 +2,19 @@ FROM php:8.4.13-apache
 
 ARG VERSION=v1.0.36
 
+# # System deps
+# RUN apk add --no-cache \
+#     bash git curl ca-certificates busybox-extras \
+#     libpng-dev libjpeg-turbo-dev freetype-dev zlib-dev \
+#     oniguruma-dev libxml2-dev icu-dev \
+#     libzip-dev zip unzip \
+#     nodejs npm
+
+# # PHP extensions (incl. gd w/ jpeg + freetype)
+# RUN docker-php-ext-configure gd --with-jpeg --with-freetype \
+#  && docker-php-ext-install \
+#     pdo pdo_mysql mbstring exif pcntl bcmath intl opcache zip gd
+
 RUN apt-get update && \
     apt-get install -y \
     unzip \
