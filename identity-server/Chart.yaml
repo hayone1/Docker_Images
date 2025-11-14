@@ -1,6 +1,6 @@
 apiVersion: v2
-appVersion: 0.0.2-beta
+appVersion: 7.2.0
 description: A Helm chart for WSO2 Identity server
 name: identity-server
 type: application
-version: 0.0.2-beta
+version: 0.0.3

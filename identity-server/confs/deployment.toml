@@ -110,9 +110,6 @@ jmx_enable=false
 [authentication.consent]
 data_source="jdbc/WSO2CONSENT_DB"
 
-[realm_manager]
-data_source = "WSO2USER_DB"
-
 [database.user]
 type = {{ .Values.deploymentToml.database.user.type | quote }}
 url = {{ .Values.deploymentToml.database.user.url | quote }}
