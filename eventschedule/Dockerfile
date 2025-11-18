@@ -1,6 +1,6 @@
 FROM php:8.4.13-apache
 
-ARG VERSION=v1.0.36
+ARG VERSION=v1.0.38
 
 # # System deps
 # RUN apk add --no-cache \
