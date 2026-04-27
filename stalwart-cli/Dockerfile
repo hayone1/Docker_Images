@@ -3,7 +3,7 @@ FROM debian:bookworm-slim AS builder
 LABEL org.opencontainers.image.title="Stalwart CLI" \
       org.opencontainers.image.description="Command-line interface for Stalwart server management" \
       org.opencontainers.image.url="https://stalwartlabs.com" \
-      org.opencontainers.image.source="https://github.com/stalwartlabs/stalwart" \
+      org.opencontainers.image.source="https://github.com/stalwartlabs/cli" \
       maintainer="boluwatife.morawo@gmail.com"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
