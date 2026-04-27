@@ -67,3 +67,31 @@ Selector labels
 app.kubernetes.io/name: {{ include "..name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Validate Cloud Provider Specific Configurations..
+*/}}
+{{- define "..validateCloudProviderConfig" -}}
+  {{- $values := .Values.deployment -}}
+
+  {{/* Validate Ingress Configuration */}}
+  {{- $ingressAwsEnabled := and (hasKey $values.ingress "aws") $values.ingress.aws.enabled }}
+  {{- $ingressAzureEnabled := and (hasKey $values.ingress "azure") $values.ingress.azure.enabled }}
+  {{- if and $ingressAwsEnabled $ingressAzureEnabled }}
+    {{- fail (printf "Validation Error in 'deployment.ingress': Both 'aws.enabled' (value: %v) and 'azure.enabled' (value: %v) are true. Only one cloud provider should be enabled for Ingress at a time." $values.ingress.aws.enabled $values.ingress.azure.enabled) }}
+  {{- end }}
+
+  {{/* Validate Persistence Configuration */}}
+  {{- $persistenceAwsEnabled := and (hasKey $values.persistence "aws") $values.persistence.aws.enabled }}
+  {{- $persistenceAzureEnabled := and (hasKey $values.persistence "azure") $values.persistence.azure.enabled }}
+  {{- if and $persistenceAwsEnabled $persistenceAzureEnabled }}
+    {{- fail (printf "Validation Error in 'deployment.persistence': Both 'aws.enabled' (value: %v) and 'azure.enabled' (value: %v) are true. Only one cloud provider should be enabled for Persistence at a time." $values.persistence.aws.enabled $values.persistence.azure.enabled) }}
+  {{- end }}
+
+  {{/* Validate SecretStore Configuration */}}
+  {{- $secretStoreAwsEnabled := and (hasKey $values.secretStore "aws") $values.secretStore.aws.enabled }}
+  {{- $secretStoreAzureEnabled := and (hasKey $values.secretStore "azure") $values.secretStore.azure.enabled }}
+  {{- if and $secretStoreAwsEnabled $secretStoreAzureEnabled }}
+    {{- fail (printf "Validation Error in 'deployment.secretStore': Both 'aws.enabled' (value: %v) and 'azure.enabled' (value: %v) are true. Only one cloud provider should be enabled for SecretStore at a time." $values.secretStore.aws.enabled $values.secretStore.azure.enabled) }}
+  {{- end }}
+{{- end -}}

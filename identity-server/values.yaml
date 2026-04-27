@@ -36,7 +36,7 @@ deployment:
     tlsSecretsName: "is-tls"
     # -- Enable Nginx rate limiting
     enableNginxRateLimit: false
-    annotations:
+    commonAnnotations: &commonAnnotations
       nginx.ingress.kubernetes.io/affinity: "cookie"
       nginx.ingress.kubernetes.io/session-cookie-name: "paf"
       nginx.ingress.kubernetes.io/session-cookie-hash: "sha1"
@@ -45,12 +45,24 @@ deployment:
       nginx.ingress.kubernetes.io/session-cookie-conditional-samesite-none: "true"
       nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
       nginx.ingress.kubernetes.io/session-cookie-path: "/"
-      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
       # Enable or disable proxy buffering proxy_buffering. By default, proxy buffering is disabled in the NGINX config(Ref: https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/annotations.md#proxy-buffering).
       nginx.ingress.kubernetes.io/proxy-buffering: "on"
       # Sets the size of the buffer proxy_buffer_size used for reading the first part of the response received from the proxied server. By default proxy buffer size is set as "64k".(Ref: https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/annotations.md#proxy-buffer-size)
       nginx.ingress.kubernetes.io/proxy-buffer-size: "64k"
-
+    azure:
+      enabled: true
+      annotations:
+        !!merge <<: *commonAnnotations
+        nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    aws:
+      enabled: false
+      annotations:
+        !!merge <<: *commonAnnotations
+        nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+  rbac:
+    aws:
+      annotations:
+        eks.amazonaws.com/role-arn: "null"
   image:
     # -- Container image registry host name
     registry: "docker.wso2.com"
@@ -59,7 +71,7 @@ deployment:
     # -- Container image digest
     digest: ""
     # -- Container image tag. Either "tag" or "digest" should defined
-    tag: "7.1.0"
+    tag: "7.2.0"
     # -- Refer to the Kubernetes documentation on updating images (Ref: https://kubernetes.io/docs/concepts/containers/images/#updating-images)
     pullPolicy: "Always"
     # -- image pull secret name
@@ -157,7 +169,7 @@ deployment:
         -Dhttpclient.hostnameVerifier=Strict -Djdk.tls.client.protocols=TLSv1.2
         -Djava.util.prefs.systemRoot=/home/wso2carbon/.java -Djava.util.prefs.userRoot=/home/wso2carbon/.java/.userPrefs
   # -- Product version
-  buildVersion: "7.1.0"
+  buildVersion: "7.2.0"
   # -- Product pack name
   productPackName: "wso2is"
   # -- Enable correlation logs
@@ -166,7 +178,8 @@ deployment:
     # -- Mount external  keystore and trustores
     enabled: false
     # -- K8s secret name which contains JKS files
-    secretName: "keystores"
+    internalKeystoreSecretName: "keystores"
+    tlsKeystoreSecretName: "keystores"
   persistence:
     # -- Enable persistence for artifact sharing
     enabled: false
@@ -186,6 +199,11 @@ deployment:
       secretName: "azure-storage-csi"
     # -- Define capacity for persistent runtime artifacts which are shared between instances of the Identity Server profile
     capacity: 100Gi
+    aws:
+      # -- Enable persistence for artifact sharing using AWS EFS
+      enabled: false
+      # -- EFS volume handle ID
+      volumeHandle: ""
   secretStore:
     # -- Enable secure vault with secret store CSI driver
     enabled: false
@@ -208,6 +226,25 @@ deployment:
         secretName: "INTERNAL-KEYSTORE-PASSWORD-DECRYPTED"
       # -- The name of the Kubernetes secret that contains the service principal credentials to access Azure Key Vault. Ref: https://azure.github.io/secrets-store-csi-driver-provider-azure/docs/configurations/identity-access-modes/service-principal-mode/#configure-service-principal-to-access-keyvault
       nodePublishSecretRef: "azure-kv-secret-store-sp"
+    aws:
+      enabled: false
+      secretManager:
+        # -- Secret Injector container image configuration
+        image:
+          # -- Container image registry host name
+          registry: ""
+          # -- Container image repository name
+          repository: ""
+          # -- Container image tag
+          tag: ""
+          # -- Container image digest
+          digest: ""
+        # -- AWS Secret Manager secret name of the internal keystore password
+        secretName: "INTERNAL-KEYSTORE-PASSWORD-DECRYPTED"
+        # -- Region of the deployment
+        region: ""
+        # -- Output path for the secret
+        outputPath: "/tmp/password-tmp"
   configMaps:
     entryPoint:
       defaultMode: "0407"
@@ -264,7 +301,7 @@ deploymentToml:
       # -- The database username
       username: "wso2carbon"
       # -- The database JDBC URL
-      url: "jdbc:h2:./repository/database/WSO2IDENTITY_DB;DB_CLOSE_ON_EXIT=FALSE"
+      url: "jdbc:h2:./repository/database/WSO2IDENTITY_DB;DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=60000"
       # -- The password
       password: "wso2carbon"
       # -- The database JDBC driver
@@ -321,7 +358,7 @@ deploymentToml:
       # -- The database username
       username: "wso2carbon"
       # -- The database JDBC URL
-      url: "jdbc:h2:./repository/database/WSO2IDENTITY_DB;DB_CLOSE_ON_EXIT=FALSE"
+      url: "jdbc:h2:./repository/database/WSO2IDENTITY_DB;DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=60000"
       # -- The database password
       password: "wso2carbon"
       # -- The database JDBC driver
@@ -335,26 +372,49 @@ deploymentToml:
 #        validationQuery: "SELECT 1"
 #        validationInterval: "30000"
 #        defaultAutoCommit: false
+    agentIdentity:
+      # -- The SQL server type(ex: mysql, mssql)
+      type: "h2"
+      # -- The database username
+      username: "wso2carbon"
+      # -- The database JDBC URL
+      url: "jdbc:h2:./repository/database/WSO2AGENTIDENTITY_DB;DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=60000"
+      # -- The database password
+      password: "wso2carbon"
+      # -- The database JDBC driver
+      driver: "org.h2.Driver"
+      # -- The database pool options
+      poolOptions:
+#        maxActive: "50"
+#        maxWait: "60000"
+#        minIdle: "10"
+#        validationInterval: "30000"
+#        defaultAutoCommit: true
+#        commitOnReturn: false
   keystore:
     tls:
+      secretKey: "wso2carbon.p12"
       fileName: "wso2carbon.p12"
       type: "PKCS12"
       password: "wso2carbon"
       alias: "wso2carbon"
       keyPassword: "wso2carbon"
     primary:
+      secretKey: "wso2carbon.p12"
       fileName: "wso2carbon.p12"
       type: "PKCS12"
       password: "wso2carbon"
       alias: "wso2carbon"
       keyPassword: "wso2carbon"
     internal:
+      secretKey: "wso2carbon.p12"
       fileName: "wso2carbon.p12"
       type: "PKCS12"
       password: "wso2carbon"
       alias: "wso2carbon"
       keyPassword: "wso2carbon"
   truststore:
+    secretKey: "client-truststore.p12"
     fileName: "client-truststore.p12"
     type: "PKCS12"
     password: "wso2carbon"
@@ -502,6 +562,10 @@ k8sKindAPIVersions:
   secret: "v1"
   # -- K8s API version for kind Service
   service: "v1"
+  # -- k8s API verion for CSI Driver
+  csi: "storage.k8s.io/v1"
+  # -- K8s API version for kind Job
+  job: "batch/v1"
 # -- OpenShift API versions for OpenShift kinds
 openShiftKindAPIVersions:
   # -- OpenShift API version for kind Route

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, WSO2 LLC. (https://www.wso2.com) All Rights Reserved.
+# Copyright (c) 2024-2025, WSO2 LLC. (https://www.wso2.com) All Rights Reserved.
 #
 # WSO2 LLC. licenses this file to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file except
@@ -27,6 +27,7 @@ offset = {{ .Values.deploymentToml.server.offset | quote }}
 
 {{- end }}
 # -------------------------------------------------------------------
+
 
 [transport.https.properties]
 proxyPort = {{ .Values.deploymentToml.transport.https.properties.proxyPort }}
@@ -107,8 +108,31 @@ jmx_enable=false
 {{- end }}
 {{- end }}
 
+[datasource.AgentIdentity]
+id ="AgentIdentity"
+url = {{ .Values.deploymentToml.database.agentIdentity.url | quote }}
+type = {{ .Values.deploymentToml.database.agentIdentity.type | quote }}
+{{- if .Values.deployment.secretStore.enabled }}
+username = "$secret{database_agent_identity_username}"
+password = "$secret{database_agent_identity_password}"
+{{- else }}
+username = {{ .Values.deploymentToml.database.agentIdentity.username | quote }}
+password = {{ .Values.deploymentToml.database.agentIdentity.password | quote }}
+{{- end }}
+driver = {{ .Values.deploymentToml.database.agentIdentity.driver | quote }}
+jmx_enable=false
+{{- if .Values.deploymentToml.database.agentIdentity.poolOptions }}
+[datasource.AgentIdentity.pool_options]
+{{- range $key, $value := .Values.deploymentToml.database.agentIdentity.poolOptions }}
+{{ $key }} = {{ $value | quote }}
+{{- end }}
+{{- end }}
+
 [authentication.consent]
 data_source="jdbc/WSO2CONSENT_DB"
+
+[realm_manager]
+data_source = "WSO2USER_DB"
 
 [database.user]
 type = {{ .Values.deploymentToml.database.user.type | quote }}
@@ -358,6 +382,8 @@ database_user_username = {{ .Values.deploymentToml.database.user.username | quot
 database_user_password = {{ .Values.deploymentToml.database.user.password | quote }}
 database_consent_username = {{ .Values.deploymentToml.database.consent.username | quote }}
 database_consent_password = {{ .Values.deploymentToml.database.consent.password | quote }}
+database_agent_identity_username = {{ .Values.deploymentToml.database.agentIdentity.username | quote }}
+database_agent_identity_password = {{ .Values.deploymentToml.database.agentIdentity.password | quote }}
 
 # Keystores
 keystore_tls_password = {{ .Values.deploymentToml.keystore.tls.password | quote }}

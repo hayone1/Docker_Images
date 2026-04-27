@@ -21,3 +21,5 @@ vendor/
 docker-compose.yml.local
 
 *.tgz
+
+_debug/

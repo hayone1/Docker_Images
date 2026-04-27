@@ -1,0 +1,7 @@
+docker build -t wso2is-postgres .
+
+docker tag wso2is-postgres hayone/wso2is-postgres:0.0.1
+docker tag wso2is-postgres hayone/wso2is-postgres:latest
+docker push hayone/wso2is-postgres:0.0.1
+docker push hayone/wso2is-postgres:latest
+
