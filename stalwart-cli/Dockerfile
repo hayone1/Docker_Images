@@ -7,7 +7,9 @@ LABEL org.opencontainers.image.title="Stalwart CLI" \
       maintainer="boluwatife.morawo@gmail.com"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates \
+    curl \
+    ca-certificates \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the CLI
