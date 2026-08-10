@@ -11,6 +11,15 @@ on:
                 description: 'Version to tag the container image with'
                 required: true
                 default: 'latest'
+            platforms:
+                description: 'Target platforms. arm64 builds run under QEMU and are slow (tens of minutes for anything that compiles).'
+                required: false
+                default: 'linux/amd64'
+                type: choice
+                options:
+                    - 'linux/amd64'
+                    - 'linux/arm64'
+                    - 'linux/amd64,linux/arm64'
 
 jobs:
   push_to_registry:
@@ -52,8 +61,13 @@ jobs:
           context: "{{defaultContext}}:${{ github.event.inputs.image_folder }}"
           # file: "./${{ github.event.inputs.image_folder }}/Dockerfile"
           push: true
+          # Without this the job emits an amd64-only image regardless of the QEMU and Buildx setup
+          # steps above — which is why there was no arm64 image to deploy to the Rockchip cluster.
+          platforms: ${{ github.event.inputs.platforms }}
           tags: ${{ steps.meta.outputs.tags }},${{ env.NAMESPACE }}/${{ github.event.inputs.image_folder }}:${{ github.event.inputs.version_tag }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
