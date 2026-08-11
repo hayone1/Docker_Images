@@ -57,14 +57,15 @@ Listens on **8000**.
 - **`HOME=/tmp` and a non-root user.** adb writes its keys and server state to `$HOME`; without a
   writable one it fails to start the server.
 
-## Not yet verified
+## Verified
 
-This image has **not been built or run** — it was authored without a local Docker build. The
-plausible failure points, in order:
+`hayone/ws-scrcpy:0.0.1-build.1` builds and runs on arm64. In the dev cluster it:
 
-1. `node-pty@0.10.1` compiling against Node 20 on arm64. If it fails, try `NODE_VERSION=18-bookworm`
-   as a build arg.
-2. `npm run dist` (webpack) under QEMU — slow, and may hit the runner's memory ceiling.
-3. `--ignore-scripts` skipping something beyond the Appium hook that the build actually needs.
+- pulled as arm64 (79 MB) and started first try, no restarts
+- attached all 15 redroid instances on the first connect attempt
+- pushed the scrcpy server to every device (15 `start server` lines)
+- serves HTTP 200 behind the shared gateway with a trusted certificate
+- idles at **1m CPU / 34Mi** — the resource requests in the chart are generous by comparison
 
-If the build fails, the log will say which — none of these are subtle.
+Node 20 built `node-pty` on arm64 without trouble, and dropping the Appium postinstall caused no
+problems, so the concerns listed here before the first build did not materialise.
