@@ -41,18 +41,22 @@ if [ -z "$TARGET_LIST" ]; then
     log "no ADB_TARGETS and no REDROID_COUNT set — starting with no devices attached"
 else
     n=$(echo "$TARGET_LIST" | wc -w)
-    log "attaching $n device(s)"
-    # Redroid takes minutes to boot; on a cold cluster start the first attempts will all fail.
-    # Retry for a few minutes so a simultaneous rollout does not leave the UI permanently empty.
-    attempt=0
-    while [ "$attempt" -lt 20 ]; do
-        connect_all
-        online=$(adb devices | grep -c "device$" || true)
-        log "attempt $((attempt + 1)): $online/$n online"
-        [ "$online" -ge "$n" ] && break
-        attempt=$((attempt + 1))
-        sleep 15
-    done
+    # Do ONE connect pass, then start the server. Do not block on all devices being online.
+    #
+    # This used to retry for up to 5 minutes waiting for every device, and only then exec node.
+    # With all instances healthy the loop broke immediately and nobody noticed — but when a single
+    # redroid pod failed to boot, the wait ran its full length, the liveness probe had nothing
+    # listening to probe, and the container was killed and restarted forever. One sick Android
+    # took down browser access to the other fourteen (observed 2026-08-12: "attempt N: 14/15
+    # online" on repeat, CrashLoopBackOff).
+    #
+    # Devices that are not up yet get attached by the reconnect loop below, which is the same
+    # mechanism that already handles a pod restarting later. There is no reason to treat a device
+    # that is slow to boot differently from one that restarts an hour from now.
+    log "attaching $n device(s) (non-blocking)"
+    connect_all
+    online=$(adb devices | grep -c "device$" || true)
+    log "$online/$n online at startup; the rest will attach as they come up"
     adb devices | sed 's/^/[entrypoint]   /'
 
     (
