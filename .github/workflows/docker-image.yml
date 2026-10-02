@@ -15,6 +15,11 @@ on:
                 description: 'Version to tag the container image with'
                 required: true
                 default: 'latest'
+            tag_latest:
+                description: 'Also tag the image as latest'
+                required: false
+                default: true
+                type: boolean
             platforms:
                 description: 'Target platforms. arm64 builds run under QEMU and are slow (tens of minutes for anything that compiles).'
                 required: false
@@ -58,6 +63,10 @@ jobs:
         uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
         with:
           images: ${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=raw,value=${{ github.event.inputs.version_tag }}
+            type=raw,value=latest,enable=${{ github.event.inputs.tag_latest == 'true' }}
 
       - name: Build and push Docker image
         id: push
@@ -69,7 +78,7 @@ jobs:
           # Without this the job emits an amd64-only image regardless of the QEMU and Buildx setup
           # steps above — which is why there was no arm64 image to deploy to the Rockchip cluster.
           platforms: ${{ github.event.inputs.platforms }}
-          tags: ${{ steps.meta.outputs.tags }},${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version_tag }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
