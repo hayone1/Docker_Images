@@ -2,14 +2,15 @@
 
 WSO2 Identity Server image with the PostgreSQL JDBC driver pre-installed.
 
-The Dockerfile and `docker-entrypoint.sh` are the official WSO2 Ubuntu image files
-(`wso2/docker-is` v7.3.0.1, `dockerfiles/ubuntu/is`) with one addition: the
-PostgreSQL JDBC driver is added to `repository/components/lib`.
+The image is built `FROM` the official `wso2/wso2is` image, pinned by digest, and only
+adds the PostgreSQL JDBC driver to `repository/components/lib`. The JDK, OS, user and
+entrypoint all come from the upstream image (built from `wso2/docker-is`
+`dockerfiles/ubuntu/is`).
 
 | Component            | Version                         |
 | -------------------- | ------------------------------- |
 | WSO2 Identity Server | 7.3.0                           |
-| Base image           | ubuntu:24.04                    |
+| Base image           | wso2/wso2is:7.3.0 (Ubuntu 24.04)|
 | JDK                  | Eclipse Temurin 21.0.9+10       |
 | PostgreSQL JDBC      | 42.7.13                         |
 | dnsjava              | 3.6.1                           |
@@ -23,6 +24,13 @@ The image does not contain a database configuration. Mount a `deployment.toml` w
 PostgreSQL datasources through the config volume
 (`/home/wso2carbon/wso2-config-volume`, copied over `WSO2_SERVER_HOME` at start-up).
 See the WSO2 guide linked below for the required settings and DB scripts.
+
+## Updating to a new WSO2 IS release
+
+1. Find the new tag on https://hub.docker.com/r/wso2/wso2is/tags.
+2. Update the tag and `@sha256:` digest in the `FROM` line
+   (`docker buildx imagetools inspect wso2/wso2is:<tag>` prints the digest).
+3. Run the workflow with `version_tag` set to the same tag.
 
 ## Build and publish
 
