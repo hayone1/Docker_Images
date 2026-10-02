@@ -1,25 +1,41 @@
-# Use the bitnami/python base image
-FROM bitnami/python
+# Official Python slim image (bitnami/python free tags are no longer maintained)
+FROM python:3.13-slim-trixie
 
-# Install kubectl
-RUN apt-get update
-RUN apt-get install -y apt-transport-https ca-certificates curl
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-RUN chmod +x ./kubectl
-RUN mv ./kubectl /usr/local/bin
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# install relevant python packages
-RUN pip install kubernetes
-RUN pip install PyYAML
-RUN pip install argo-workflows
-RUN pip install hera
-RUN pip install multiprocess
+ARG KUBECTL_VERSION=v1.37.1
+ARG TARGETARCH=amd64
 
-# RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-# RUN echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-# RUN apt-get update
-# RUN apt-get install -y kubectl
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Apply security updates and install curl for downloads
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the entry point back to python
+# Install kubectl (pinned, checksum verified)
+RUN curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+    && echo "$(curl -fsSL https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256)  kubectl" | sha256sum -c - \
+    && install -m 0755 kubectl /usr/local/bin/kubectl \
+    && rm kubectl \
+    && kubectl version --client
+
+# Install relevant python packages (pinned)
+RUN pip install --upgrade pip \
+    && pip install \
+        kubernetes==36.0.3 \
+        PyYAML==6.0.3 \
+        argo-workflows==6.7.18 \
+        hera==7.1.0 \
+        multiprocess==0.70.19
+
+# Run as non-root user
+RUN useradd --create-home --uid 1001 --shell /bin/bash app
+USER 1001
+WORKDIR /home/app
+
 ENTRYPOINT ["python"]
