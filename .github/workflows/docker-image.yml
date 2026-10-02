@@ -7,6 +7,10 @@ on:
                 description: 'Folder name containing the Dockerfile'
                 required: true
                 default: 'blue-agent'
+            image_name:
+                description: 'Docker Hub image name (defaults to the folder name)'
+                required: false
+                default: ''
             version_tag:
                 description: 'Version to tag the container image with'
                 required: true
@@ -32,6 +36,7 @@ jobs:
       id-token: write
     env:
         NAMESPACE: "hayone"
+        IMAGE_NAME: ${{ github.event.inputs.image_name || github.event.inputs.image_folder }}
     steps:
       # - name: Check out the repo
       #   uses: actions/checkout@v5
@@ -52,7 +57,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
         with:
-          images: ${{ env.NAMESPACE }}/${{ github.event.inputs.image_folder }}
+          images: ${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}
 
       - name: Build and push Docker image
         id: push
@@ -64,7 +69,7 @@ jobs:
           # Without this the job emits an amd64-only image regardless of the QEMU and Buildx setup
           # steps above — which is why there was no arm64 image to deploy to the Rockchip cluster.
           platforms: ${{ github.event.inputs.platforms }}
-          tags: ${{ steps.meta.outputs.tags }},${{ env.NAMESPACE }}/${{ github.event.inputs.image_folder }}:${{ github.event.inputs.version_tag }}
+          tags: ${{ steps.meta.outputs.tags }},${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version_tag }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -72,6 +77,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-name: index.docker.io/${{ env.NAMESPACE }}/${{ github.event.inputs.image_folder }}
+          subject-name: index.docker.io/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
