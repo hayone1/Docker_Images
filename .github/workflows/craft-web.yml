@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [photocraft, designcraft, vectorcraft, lightcraft, filmcraft, pdfcraft]
+        app: [photocraft, designcraft, vectorcraft, lightcraft, filmcraft, pdfcraft, effectcraft]
     permissions:
       contents: read
       attestations: write
