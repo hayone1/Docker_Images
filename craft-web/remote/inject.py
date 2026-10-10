@@ -9,3 +9,5 @@ html = index.read_text(encoding="utf-8")
 if html.count("</head>") != 1:
     sys.exit(f"inject.py: no single </head> in {index}")
 index.write_text(html.replace("</head>", f'<script data-app="{app}">\n{script}</script>\n</head>'), encoding="utf-8")
+for stale in ("index.html.gz", "index.html.br"):
+    (site / stale).unlink(missing_ok=True)
