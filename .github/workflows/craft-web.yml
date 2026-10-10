@@ -2,7 +2,8 @@ name: Build storytold craft web images
 
 # Every 3 hours, check each storytold/*craft repo for a new GitHub release. When the release's
 # <app>-web-<version>.zip is not yet on Docker Hub as hayone/<app>:<version>, wrap it in nginx
-# (craft-web/Dockerfile) and push it, then sync the Docker Hub description with the GitHub repo.
+# (craft-web/Dockerfile) and push it, The Docker Hub description is re-synced
+# with the GitHub repo on every run, even when the build is skipped.
 
 on:
   schedule:
@@ -138,7 +139,6 @@ jobs:
           push-to-registry: true
 
       - name: Write Docker Hub overview
-        if: steps.exists.outputs.skip != 'true'
         run: |
           homepage="${{ steps.release.outputs.homepage }}"
           {
@@ -161,11 +161,11 @@ jobs:
           } > /tmp/README.md
 
       - name: Update Docker Hub description
-        if: steps.exists.outputs.skip != 'true'
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          # Needs a Docker Hub access token with Read, Write & Delete scope; push-only tokens get 403.
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKER_PASSWORD }}
           repository: ${{ env.NAMESPACE }}/${{ env.APP }}
           short-description: ${{ steps.release.outputs.description }}
           readme-filepath: /tmp/README.md
