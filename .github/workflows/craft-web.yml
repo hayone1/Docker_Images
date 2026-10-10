@@ -4,10 +4,16 @@ name: Build storytold craft web images
 # <app>-web-<version>.zip is not yet on Docker Hub as hayone/<app>:<version>, wrap it in nginx
 # (craft-web/Dockerfile) and push it, The Docker Hub description is re-synced
 # with the GitHub repo on every run, even when the build is skipped.
+# The remote variant (<version>-remote, remote) adds craft-web/remote: photocraft, vectorcraft and
+# lightcraft are rebuilt from source with patch.py, and every app gets the craft-remote.js relay
+# client. craft-mcp is the matching MCP relay.
 
 on:
   schedule:
     - cron: '17 */3 * * *'
+  push:
+    branches: [main]
+    paths: ['craft-web/**', 'craft-mcp/**', '.github/workflows/craft-web.yml']
   workflow_dispatch:
     inputs:
       force:
@@ -22,12 +28,16 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.app }}
+    name: ${{ matrix.app }} (${{ matrix.variant }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         app: [photocraft, designcraft, vectorcraft, lightcraft, filmcraft, pdfcraft, effectcraft]
+        variant: [official, remote]
+        exclude:
+          - { app: designcraft, variant: remote }
+          - { app: pdfcraft, variant: remote }
     permissions:
       contents: read
       attestations: write
@@ -37,6 +47,8 @@ jobs:
       APP: ${{ matrix.app }}
       SOURCE_REPO: storytold/${{ matrix.app }}
       GH_TOKEN: ${{ github.token }}
+      SUFFIX: ${{ matrix.variant == 'remote' && '-remote' || '' }}
+      FROM_SOURCE: ${{ matrix.variant == 'remote' && contains('photocraft vectorcraft lightcraft', matrix.app) }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v5
@@ -68,16 +80,57 @@ jobs:
         id: exists
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' \
-            "https://hub.docker.com/v2/namespaces/$NAMESPACE/repositories/$APP/tags/${{ steps.release.outputs.version }}")
-          if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ]; then
+            "https://hub.docker.com/v2/namespaces/$NAMESPACE/repositories/$APP/tags/${{ steps.release.outputs.version }}$SUFFIX")
+          # A push changes the build itself, so it rebuilds the current release.
+          if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ] && [ "$GITHUB_EVENT_NAME" != push ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "$NAMESPACE/$APP:${{ steps.release.outputs.version }} already published; skipping build."
+            echo "$NAMESPACE/$APP:${{ steps.release.outputs.version }}$SUFFIX already published; skipping build."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check out the app source
+        if: steps.exists.outputs.skip != 'true' && env.FROM_SOURCE == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ steps.release.outputs.tag }}
+          path: src
+
+      - name: Set up Rust
+        if: steps.exists.outputs.skip != 'true' && env.FROM_SOURCE == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        if: steps.exists.outputs.skip != 'true' && env.FROM_SOURCE == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+          key: ${{ matrix.app }}-web
+
+      - name: Build patched web app
+        if: steps.exists.outputs.skip != 'true' && env.FROM_SOURCE == 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          # The same tools as the app's own release workflow (web job).
+          if [ "$APP" = lightcraft ]; then
+            bindgen=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+            cargo install wasm-bindgen-cli --version "$bindgen" --locked
+          else
+            curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz \
+              | tar -xz -C "$HOME/.cargo/bin" trunk
+          fi
+          python3 ../craft-web/remote/patch.py "$APP" .
+          packaging/web/package.sh
+          unzip -q "dist/release/$APP-web-${{ steps.release.outputs.version }}.zip" -d /tmp/web
+          mv "/tmp/web/$APP-web-${{ steps.release.outputs.version }}" ../craft-web/site
+          test -s ../craft-web/site/index.html
+
       - name: Download and unpack web release
-        if: steps.exists.outputs.skip != 'true'
+        if: steps.exists.outputs.skip != 'true' && env.FROM_SOURCE != 'true'
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -o /tmp/web.zip "${{ steps.release.outputs.zip_url }}"
@@ -85,6 +138,10 @@ jobs:
           # The zip holds a single <app>-web-<version>/ folder.
           mv "/tmp/web/$APP-web-${{ steps.release.outputs.version }}" craft-web/site
           test -s craft-web/site/index.html
+
+      - name: Add the relay client
+        if: steps.exists.outputs.skip != 'true' && matrix.variant == 'remote'
+        run: python3 craft-web/remote/inject.py "$APP" craft-web/site
 
       - name: Log in to Docker Hub
         if: steps.exists.outputs.skip != 'true'
@@ -108,14 +165,14 @@ jobs:
         with:
           images: ${{ env.NAMESPACE }}/${{ env.APP }}
           tags: |
-            type=raw,value=${{ steps.release.outputs.version }}
-            type=raw,value=latest
+            type=raw,value=${{ steps.release.outputs.version }}${{ env.SUFFIX }}
+            type=raw,value=${{ matrix.variant == 'remote' && 'remote' || 'latest' }}
           labels: |
             org.opencontainers.image.title=${{ env.APP }}
             org.opencontainers.image.description=${{ steps.release.outputs.description }}
             org.opencontainers.image.source=https://github.com/${{ env.SOURCE_REPO }}
             org.opencontainers.image.url=${{ steps.release.outputs.homepage || format('https://github.com/{0}', env.SOURCE_REPO) }}
-            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}${{ env.SUFFIX }}
             org.opencontainers.image.licenses=MIT OR Apache-2.0
 
       - name: Build and push Docker image
@@ -139,6 +196,7 @@ jobs:
           push-to-registry: true
 
       - name: Write Docker Hub overview
+        if: matrix.variant == 'official'
         run: |
           homepage="${{ steps.release.outputs.homepage }}"
           {
@@ -157,10 +215,12 @@ jobs:
             echo '```'
             echo
             echo "Health check: \`GET /healthz\`. Tags: \`latest\` and the release version (e.g. \`${{ steps.release.outputs.version }}\`)."
+            echo "The \`remote\` and \`<version>-remote\` tags add a relay client so an MCP client can drive the open tab through [craft-mcp](https://hub.docker.com/r/$NAMESPACE/craft-mcp)."
             echo "Licensed MIT OR Apache-2.0, as upstream."
           } > /tmp/README.md
 
       - name: Update Docker Hub description
+        if: matrix.variant == 'official'
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
@@ -169,3 +229,64 @@ jobs:
           repository: ${{ env.NAMESPACE }}/${{ env.APP }}
           short-description: ${{ steps.release.outputs.description }}
           readme-filepath: /tmp/README.md
+
+  craft-mcp:
+    name: craft-mcp
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      - name: Resolve CLI versions
+        id: versions
+        run: |
+          set -euo pipefail
+          for app in photocraft vectorcraft lightcraft filmcraft effectcraft; do
+            tag=$(gh api "repos/storytold/$app/releases/latest" -q .tag_name)
+            echo "${app^^}_VERSION=${tag#v}" >> /tmp/build-args
+          done
+          # One tag per combination of CLI versions and relay source.
+          echo "tag=$(cat /tmp/build-args craft-mcp/* | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          { echo 'build_args<<ARGS'; cat /tmp/build-args; echo ARGS; } >> "$GITHUB_OUTPUT"
+
+      - name: Check Docker Hub for existing tag
+        id: exists
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-mcp/tags/${{ steps.versions.outputs.tag }}")
+          if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up QEMU
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: craft-mcp
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: ${{ steps.versions.outputs.build_args }}
+          tags: |
+            hayone/craft-mcp:${{ steps.versions.outputs.tag }}
+            hayone/craft-mcp:latest

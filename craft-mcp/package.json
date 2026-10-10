@@ -1,0 +1,9 @@
+{
+  "name": "craft-mcp",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "supergateway": "4.1.0",
+    "ws": "8.22.0"
+  }
+}
