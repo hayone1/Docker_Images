@@ -1,24 +1,48 @@
-// Serves each craft app's MCP (its own CLI in bridge mode, behind supergateway) and relays the
-// CLI's control-protocol requests to the browser tab connected for that app.
-import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+// MCP for the craft apps open in browser tabs. Each MCP session runs the app's CLI in bridge mode
+// and relays its control-protocol requests to the tab opened with the same session key.
+//
+//   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
+//   https://<host>/<key>/<app>/mcp     the MCP client
+//   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
+//
+// A key is <expiry>.<nonce>.<signature> signed with MCP_KEY, so keys need no storage and expire.
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import net from "node:net";
 import { createInterface } from "node:readline";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WebSocketServer } from "ws";
 
-const KEY = process.env.MCP_KEY;
+const MASTER = process.env.MCP_KEY ?? "";
+if (MASTER.length < 16) throw new Error("MCP_KEY must be at least 16 characters");
 const TIMEOUT_MS = 120_000;
-if (!/^[\w-]{16,}$/.test(KEY ?? "")) throw new Error("MCP_KEY must be at least 16 URL-safe characters");
+const IDLE_MS = 60 * 60_000;
 
-// app: [control port, MCP port, CLI bridge arguments]
-const APPS = {
-  photocraft: [7801, 8101, (p) => ["--bridge", `127.0.0.1:${p}`, "--control-token-file", "/tmp/control.token"]],
-  vectorcraft: [7802, 8102, (p) => ["--connect", `127.0.0.1:${p}`]],
-  lightcraft: [7803, 8103, (p) => ["--connect", `127.0.0.1:${p}`]],
-  filmcraft: [7804, 8104, (p) => ["--bridge", `127.0.0.1:${p}`]],
-  effectcraft: [7805, 8105, (p) => ["--bridge", `127.0.0.1:${p}`]],
+const BRIDGE = {
+  photocraft: (p) => ["--bridge", `127.0.0.1:${p}`, "--control-token-file", "/tmp/control.token"],
+  vectorcraft: (p) => ["--connect", `127.0.0.1:${p}`],
+  lightcraft: (p) => ["--connect", `127.0.0.1:${p}`],
+  filmcraft: (p) => ["--bridge", `127.0.0.1:${p}`],
+  effectcraft: (p) => ["--bridge", `127.0.0.1:${p}`],
+};
+
+const sign = (payload) => createHmac("sha256", MASTER).update(payload).digest("base64url").slice(0, 32);
+
+if (process.argv[2] === "mint") {
+  const expiry = Math.floor(Date.now() / 1000) + Number(process.argv[3] ?? 24) * 3600;
+  const payload = `${expiry}.${randomBytes(9).toString("base64url")}`;
+  console.log(`${payload}.${sign(payload)}`);
+  process.exit(0);
+}
+
+const valid = (key) => {
+  const [expiry, nonce, signature] = key?.split(".") ?? [];
+  if (!signature || Number(expiry) * 1000 < Date.now()) return false;
+  const expected = Buffer.from(sign(`${expiry}.${nonce}`));
+  const given = Buffer.from(signature);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 };
 
 const token = randomBytes(32).toString("hex");
@@ -26,6 +50,7 @@ writeFileSync("/tmp/control.token", token, { mode: 0o600 });
 
 const tabs = new Map();
 const waiting = new Map();
+const sessions = new Map();
 let nextId = 1;
 
 const answer = (entry, reply) => {
@@ -34,82 +59,109 @@ const answer = (entry, reply) => {
   if (!entry.socket.destroyed) entry.socket.write(`${JSON.stringify({ ...reply, id: entry.id })}\n`);
 };
 
-const failApp = (app, error) => {
-  for (const entry of waiting.values()) if (entry.app === app) answer(entry, { ok: false, error });
+// The bridge server one CLI connects to, relaying to the tab of `slot` (<key>/<app>).
+const controlServer = (slot) => net.createServer((socket) => {
+  const reply = (msg) => socket.write(`${JSON.stringify(msg)}\n`);
+  createInterface({ input: socket }).on("line", (line) => {
+    let msg;
+    try { msg = JSON.parse(line); } catch { return reply({ id: null, ok: false, error: "bad JSON" }); }
+    const id = msg.id ?? null;
+    if (msg.method === "auth") {
+      const ok = msg.params?.token === token;
+      return reply(ok ? { id, ok, result: { authenticated: true } } : { id, ok, error: "authentication required" });
+    }
+    const tab = tabs.get(slot);
+    if (!tab) return reply({ id, ok: false, error: "no tab is connected for this key; open the app with its relay link" });
+    const relayId = nextId++;
+    const entry = { slot, socket, id, relayId };
+    entry.timer = setTimeout(() => answer(entry, { ok: false, error: "timeout" }), TIMEOUT_MS);
+    waiting.set(relayId, entry);
+    tab.send(JSON.stringify({ id: relayId, method: msg.method, params: msg.params ?? {} }));
+  });
+  socket.on("error", () => {});
+});
+
+async function openSession(key, app) {
+  const control = controlServer(`${key}/${app}`);
+  await new Promise((resolve) => control.listen(0, "127.0.0.1", resolve));
+  const cli = new StdioClientTransport({ command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], stderr: "inherit" });
+  const session = { key, app, seen: Date.now() };
+  const http = new StreamableHTTPServerTransport({
+    sessionIdGenerator: randomUUID,
+    onsessioninitialized: (id) => sessions.set(id, session),
+  });
+  session.http = http;
+  session.close = () => {
+    sessions.delete(http.sessionId);
+    control.close();
+    cli.close().catch(() => {});
+    http.close().catch(() => {});
+  };
+  http.onmessage = (msg) => cli.send(msg).catch(() => session.close());
+  cli.onmessage = (msg) => http.send(msg).catch(() => {});
+  http.onclose = cli.onclose = session.close;
+  await cli.start();
+  await http.start();
+  return session;
+}
+
+const readBody = async (req) => {
+  let body = "";
+  for await (const chunk of req) body += chunk;
+  return body ? JSON.parse(body) : undefined;
 };
 
-const wss = new WebSocketServer({ noServer: true, maxPayload: 64 << 20 });
-const http = createServer((req, res) => {
-  if (req.url === "/healthz") return res.end(JSON.stringify(Object.fromEntries(Object.keys(APPS).map((a) => [a, tabs.has(a)]))));
-  res.writeHead(404).end();
+const server = createServer(async (req, res) => {
+  const [key, app, leaf] = new URL(req.url, "http://relay").pathname.split("/").filter(Boolean);
+  if (req.url === "/healthz") return res.end("ok");
+  if (!valid(key) || !(app in BRIDGE) || leaf !== "mcp") return res.writeHead(404).end();
+  try {
+    const body = req.method === "POST" ? await readBody(req) : undefined;
+    const id = req.headers["mcp-session-id"];
+    let session = id && sessions.get(id);
+    if (id && (!session || session.key !== key || session.app !== app)) return res.writeHead(404).end();
+    if (!session) {
+      if (body?.method !== "initialize") return res.writeHead(400).end();
+      session = await openSession(key, app);
+    }
+    session.seen = Date.now();
+    await session.http.handleRequest(req, res, body);
+  } catch (e) {
+    console.error(`${app}: ${e}`);
+    if (!res.headersSent) res.writeHead(500).end();
+  }
 });
-http.on("upgrade", (req, socket, head) => {
+
+const wss = new WebSocketServer({ noServer: true, maxPayload: 64 << 20 });
+server.on("upgrade", (req, socket, head) => {
   const [key, tab, app] = new URL(req.url, "http://relay").pathname.split("/").filter(Boolean);
-  if (key !== KEY || tab !== "tab" || !(app in APPS)) return socket.destroy();
+  if (!valid(key) || tab !== "tab" || !(app in BRIDGE)) return socket.destroy();
+  const slot = `${key}/${app}`;
   wss.handleUpgrade(req, socket, head, (ws) => {
-    tabs.get(app)?.close(4000, "replaced by a newer tab");
-    tabs.set(app, ws);
-    console.log(`${app}: tab connected`);
+    tabs.get(slot)?.close(4000, "replaced by a newer tab");
+    tabs.set(slot, ws);
     ws.isAlive = true;
     ws.on("pong", () => (ws.isAlive = true));
     ws.on("message", (data) => {
       let reply;
       try { reply = JSON.parse(data); } catch { return; }
       const entry = waiting.get(reply.id);
-      if (entry?.app === app) answer(entry, reply);
+      if (entry?.slot === slot) answer(entry, reply);
     });
     ws.on("close", () => {
-      if (tabs.get(app) !== ws) return;
-      tabs.delete(app);
-      failApp(app, `the ${app} tab disconnected`);
-      console.log(`${app}: tab disconnected`);
+      if (tabs.get(slot) !== ws) return;
+      tabs.delete(slot);
+      for (const entry of waiting.values()) if (entry.slot === slot) answer(entry, { ok: false, error: "the tab disconnected" });
     });
   });
 });
+
 setInterval(() => {
   for (const ws of tabs.values()) {
     if (!ws.isAlive) ws.terminate();
     ws.isAlive = false;
     ws.ping();
   }
+  for (const session of sessions.values()) if (Date.now() - session.seen > IDLE_MS) session.close();
 }, 30_000);
-http.listen(8080);
-
-for (const [app, [controlPort, mcpPort, bridge]] of Object.entries(APPS)) {
-  net.createServer((socket) => {
-    createInterface({ input: socket }).on("line", (line) => {
-      let msg;
-      try { msg = JSON.parse(line); } catch {
-        return socket.write(`${JSON.stringify({ id: null, ok: false, error: "bad JSON" })}\n`);
-      }
-      const id = msg.id ?? null;
-      if (msg.method === "auth") {
-        const ok = msg.params?.token === token;
-        return socket.write(`${JSON.stringify(ok ? { id, ok, result: { authenticated: true } } : { id, ok, error: "authentication required" })}\n`);
-      }
-      const tab = tabs.get(app);
-      if (!tab) {
-        return socket.write(`${JSON.stringify({ id, ok: false, error: `no ${app} tab is connected; open ${app} in the browser with its relay link` })}\n`);
-      }
-      const relayId = nextId++;
-      const entry = { app, socket, id, relayId };
-      entry.timer = setTimeout(() => answer(entry, { ok: false, error: "timeout" }), TIMEOUT_MS);
-      waiting.set(relayId, entry);
-      tab.send(JSON.stringify({ id: relayId, method: msg.method, params: msg.params ?? {} }));
-    });
-    socket.on("error", () => {});
-  }).listen(controlPort, "127.0.0.1");
-
-  const command = [`${app}-cli`, "mcp", ...bridge(controlPort)].join(" ");
-  spawn("supergateway", [
-    "--stdio", command,
-    "--outputTransport", "streamableHttp",
-    "--stateful",
-    "--port", String(mcpPort),
-    "--streamableHttpPath", `/${KEY}/${app}/mcp`,
-    "--healthEndpoint", "/healthz",
-  ], { stdio: "inherit" }).on("exit", (code) => {
-    console.error(`${app}: supergateway exited with ${code}`);
-    process.exit(1);
-  });
-}
+server.listen(8080);

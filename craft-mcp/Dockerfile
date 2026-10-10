@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# MCP for the craft apps running in a browser tab: each app's CLI in bridge mode behind
-# supergateway, with relay.mjs carrying the bridge connection to the tab over a WebSocket.
+# MCP for the craft apps running in a browser tab: relay.mjs serves each app's CLI in bridge mode
+# over Streamable HTTP and carries the bridge connection to the tab over a WebSocket.
 FROM debian:bookworm-slim AS cli
 ARG PHOTOCRAFT_VERSION
 ARG VECTORCRAFT_VERSION
@@ -21,9 +21,8 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
-ENV PATH=/app/node_modules/.bin:$PATH
 COPY --from=cli /out/ /usr/local/bin/
 COPY relay.mjs ./
 USER node
-EXPOSE 8080 8101 8102 8103 8104 8105
+EXPOSE 8080
 CMD ["node", "relay.mjs"]
