@@ -4,6 +4,7 @@
 //   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
 //   https://<host>/<key>/<app>/mcp     the MCP client
 //   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
+//   POST /mint?app=<app>&hours=<n>     the same as JSON, for callers sending X-Mint-Secret: MCP_KEY
 //
 // A key is <expiry>.<nonce>.<signature> signed with MCP_KEY, so keys need no storage and expire.
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -28,21 +29,26 @@ const BRIDGE = {
   effectcraft: (p) => ["--bridge", `127.0.0.1:${p}`],
 };
 
+const PUBLIC_HOST = process.env.PUBLIC_HOST;
+const MAX_HOURS = 30 * 24;
+
 const sign = (payload) => createHmac("sha256", MASTER).update(payload).digest("base64url").slice(0, 32);
+const same = (a, b) => Buffer.from(a).length === Buffer.from(b).length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+
+const mint = (hours) => {
+  const expiry = Math.floor(Date.now() / 1000) + Math.round(Math.min(Math.max(hours, 1), MAX_HOURS) * 3600);
+  const payload = `${expiry}.${randomBytes(9).toString("base64url")}`;
+  return { key: `${payload}.${sign(payload)}`, expires: expiry * 1000 };
+};
 
 if (process.argv[2] === "mint") {
-  const expiry = Math.floor(Date.now() / 1000) + Number(process.argv[3] ?? 24) * 3600;
-  const payload = `${expiry}.${randomBytes(9).toString("base64url")}`;
-  console.log(`${payload}.${sign(payload)}`);
+  console.log(mint(Number(process.argv[3] ?? 24)).key);
   process.exit(0);
 }
 
 const valid = (key) => {
   const [expiry, nonce, signature] = key?.split(".") ?? [];
-  if (!signature || Number(expiry) * 1000 < Date.now()) return false;
-  const expected = Buffer.from(sign(`${expiry}.${nonce}`));
-  const given = Buffer.from(signature);
-  return given.length === expected.length && timingSafeEqual(given, expected);
+  return Boolean(signature) && Number(expiry) * 1000 >= Date.now() && same(signature, sign(`${expiry}.${nonce}`));
 };
 
 const token = randomBytes(32).toString("hex");
@@ -111,9 +117,24 @@ const readBody = async (req) => {
   return body ? JSON.parse(body) : undefined;
 };
 
+const mintRequest = (req, res, url) => {
+  const app = url.searchParams.get("app");
+  if (req.method !== "POST" || !same(req.headers["x-mint-secret"] ?? "", MASTER) || !(app in BRIDGE) || !PUBLIC_HOST) {
+    return res.writeHead(404).end();
+  }
+  const { key, expires } = mint(Number(url.searchParams.get("hours")) || 24);
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({
+    expires,
+    tab: `wss://${PUBLIC_HOST}/${key}/tab/${app}`,
+    mcp: `https://${PUBLIC_HOST}/${key}/${app}/mcp`,
+  }));
+};
+
 const server = createServer(async (req, res) => {
-  const [key, app, leaf] = new URL(req.url, "http://relay").pathname.split("/").filter(Boolean);
-  if (req.url === "/healthz") return res.end("ok");
+  const url = new URL(req.url, "http://relay");
+  if (url.pathname === "/healthz") return res.end("ok");
+  if (url.pathname === "/mint") return mintRequest(req, res, url);
+  const [key, app, leaf] = url.pathname.split("/").filter(Boolean);
   if (!valid(key) || !(app in BRIDGE) || leaf !== "mcp") return res.writeHead(404).end();
   try {
     const body = req.method === "POST" ? await readBody(req) : undefined;
