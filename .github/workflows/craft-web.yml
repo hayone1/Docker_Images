@@ -1,0 +1,171 @@
+name: Build storytold craft web images
+
+# Every 3 hours, check each storytold/*craft repo for a new GitHub release. When the release's
+# <app>-web-<version>.zip is not yet on Docker Hub as hayone/<app>:<version>, wrap it in nginx
+# (craft-web/Dockerfile) and push it, then sync the Docker Hub description with the GitHub repo.
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild even if the release tag already exists on Docker Hub'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: craft-web-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [photocraft, designcraft, vectorcraft, lightcraft, filmcraft, pdfcraft]
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    env:
+      NAMESPACE: hayone
+      APP: ${{ matrix.app }}
+      SOURCE_REPO: storytold/${{ matrix.app }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      - name: Resolve latest release
+        id: release
+        run: |
+          set -euo pipefail
+          rel=$(gh api "repos/$SOURCE_REPO/releases/latest")
+          tag=$(jq -r .tag_name <<<"$rel")
+          version=${tag#v}
+          zip_url=$(jq -r --arg n "$APP-web-$version.zip" '.assets[] | select(.name == $n) | .browser_download_url' <<<"$rel")
+          if [ -z "$zip_url" ]; then
+            echo "::error::Release $tag of $SOURCE_REPO has no $APP-web-$version.zip asset"
+            exit 1
+          fi
+          repo=$(gh api "repos/$SOURCE_REPO")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "zip_url=$zip_url" >> "$GITHUB_OUTPUT"
+          echo "release_url=$(jq -r .html_url <<<"$rel")" >> "$GITHUB_OUTPUT"
+          desc=$(jq -r '.description // empty' <<<"$repo")
+          [ -n "$desc" ] || desc="${APP^} web app, served by nginx"
+          # Docker Hub short descriptions are capped at 100 characters.
+          echo "description=${desc:0:100}" >> "$GITHUB_OUTPUT"
+          echo "homepage=$(jq -r '.homepage // empty' <<<"$repo")" >> "$GITHUB_OUTPUT"
+
+      - name: Check Docker Hub for existing tag
+        id: exists
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://hub.docker.com/v2/namespaces/$NAMESPACE/repositories/$APP/tags/${{ steps.release.outputs.version }}")
+          if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$NAMESPACE/$APP:${{ steps.release.outputs.version }} already published; skipping build."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download and unpack web release
+        if: steps.exists.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/web.zip "${{ steps.release.outputs.zip_url }}"
+          unzip -q /tmp/web.zip -d /tmp/web
+          # The zip holds a single <app>-web-<version>/ folder.
+          mv "/tmp/web/$APP-web-${{ steps.release.outputs.version }}" craft-web/site
+          test -s craft-web/site/index.html
+
+      - name: Log in to Docker Hub
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up QEMU
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata (tags, labels) for Docker
+        if: steps.exists.outputs.skip != 'true'
+        id: meta
+        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        with:
+          images: ${{ env.NAMESPACE }}/${{ env.APP }}
+          tags: |
+            type=raw,value=${{ steps.release.outputs.version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=${{ env.APP }}
+            org.opencontainers.image.description=${{ steps.release.outputs.description }}
+            org.opencontainers.image.source=https://github.com/${{ env.SOURCE_REPO }}
+            org.opencontainers.image.url=${{ steps.release.outputs.homepage || format('https://github.com/{0}', env.SOURCE_REPO) }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
+
+      - name: Build and push Docker image
+        if: steps.exists.outputs.skip != 'true'
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: craft-web
+          push: true
+          # Static files only, so arm64 costs nothing extra.
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate artifact attestation
+        if: steps.exists.outputs.skip != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: index.docker.io/${{ env.NAMESPACE }}/${{ env.APP }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Write Docker Hub overview
+        if: steps.exists.outputs.skip != 'true'
+        run: |
+          homepage="${{ steps.release.outputs.homepage }}"
+          {
+            echo "# $APP"
+            echo
+            echo "${{ steps.release.outputs.description }}"
+            echo
+            echo "- Source: https://github.com/$SOURCE_REPO"
+            [ -n "$homepage" ] && echo "- Homepage: $homepage"
+            echo "- Release: [${{ steps.release.outputs.tag }}](${{ steps.release.outputs.release_url }})"
+            echo
+            echo "Unofficial image: the upstream \`$APP-web-<version>.zip\` release asset served by nginx (non-root, port 8080)."
+            echo
+            echo '```sh'
+            echo "docker run -d -p 8080:8080 $NAMESPACE/$APP:latest"
+            echo '```'
+            echo
+            echo "Health check: \`GET /healthz\`. Tags: \`latest\` and the release version (e.g. \`${{ steps.release.outputs.version }}\`)."
+            echo "Licensed MIT OR Apache-2.0, as upstream."
+          } > /tmp/README.md
+
+      - name: Update Docker Hub description
+        if: steps.exists.outputs.skip != 'true'
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: ${{ env.NAMESPACE }}/${{ env.APP }}
+          short-description: ${{ steps.release.outputs.description }}
+          readme-filepath: /tmp/README.md
