@@ -12,7 +12,8 @@ use wasm_bindgen_futures::JsFuture;
 const SCHEME: &str = "cloud:";
 
 fn storage() -> Option<JsValue> {
-    let storage = js_sys::Reflect::get(&web_sys::window()?, &"craftStorage".into()).ok()?;
+    let window: JsValue = web_sys::window()?.into();
+    let storage = js_sys::Reflect::get(&window, &"craftStorage".into()).ok()?;
     (!storage.is_undefined()).then_some(storage)
 }
 
