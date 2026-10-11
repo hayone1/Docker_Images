@@ -1,12 +1,14 @@
-"""Add `window.craftRemote` to a craft web app: python3 patch.py <app> <checkout>.
+"""Patch a craft web app for the remote images: python3 patch.py <app> <checkout>.
 
-filmcraft and effectcraft already publish `window.<app>.request` and are left as they are.
+Adds `window.craftRemote` (remote.rs) where the app has no page API of its own, and cloud
+storage (storage.rs) where supported. filmcraft and effectcraft already publish
+`window.<app>.request`.
 """
 import pathlib
 import sys
 
-# app: (file declaring `mod web;`, anchor in src/web.rs, line inserted after it)
-HOOKS = {
+WASM = '#[cfg(target_arch = "wasm32")]\n'
+REMOTE = {
     "photocraft": (
         "src/main.rs",
         "                    let mut app = PhotocraftApp::new(session, services(inbox.clone()));\n",
@@ -23,23 +25,52 @@ HOOKS = {
         "        app = app.with_control(crate::remote::install(&cc.egui_ctx));\n",
     ),
 }
-WASM = '#[cfg(target_arch = "wasm32")]\n'
+# app: (file declaring `mod web;`, [(file, old, new)])
+STORAGE = {
+    "photocraft": (
+        "apps/photocraft-web/src/main.rs",
+        [
+            (
+                "apps/photocraft-web/src/web.rs",
+                "PhotocraftApp::new(session, services(inbox.clone()))",
+                "PhotocraftApp::new(session, { let mut s = services(inbox.clone()); crate::storage::install(&mut s); s })",
+            ),
+            (
+                "crates/ui-egui/src/lib.rs",
+                "let (_, color) = self.session.open_document(doc, None);",
+                'let (_, color) = self.session.open_document(doc, name.starts_with("cloud:").then(|| name.to_string()));',
+            ),
+        ],
+    ),
+}
 
 
-def insert_after(path, anchor, text):
+def edit(path, old, new):
     body = path.read_text(encoding="utf-8")
-    if body.count(anchor) != 1:
-        sys.exit(f"patch.py: {path} no longer matches:\n{anchor}")
-    path.write_text(body.replace(anchor, anchor + text), encoding="utf-8")
+    if body.count(old) != 1:
+        sys.exit(f"patch.py: {path} no longer matches:\n{old}")
+    path.write_text(body.replace(old, new), encoding="utf-8")
+
+
+def add_module(root, crate, mod_file, name, ui):
+    here = pathlib.Path(__file__).parent
+    source = (here / f"{name}.rs").read_text(encoding="utf-8").replace("__UI__", ui)
+    (crate / "src" / f"{name}.rs").write_text(source, encoding="utf-8")
+    edit(root / mod_file, WASM + "mod web;\n", WASM + "mod web;\n" + WASM + f"mod {name};\n")
 
 
 app, root = sys.argv[1], pathlib.Path(sys.argv[2])
-if app in HOOKS:
-    crate = root / "apps" / f"{app}-web"
-    mod_file, anchor, hook = HOOKS[app]
-    remote = (pathlib.Path(__file__).parent / "remote.rs").read_text(encoding="utf-8").replace("__UI__", f"{app}_ui_egui")
-    (crate / "src/remote.rs").write_text(remote, encoding="utf-8")
-    insert_after(crate / mod_file, WASM + "mod web;\n", WASM + "mod remote;\n")
-    insert_after(crate / "src/web.rs", anchor, hook)
-    if "\nserde_json" not in (crate / "Cargo.toml").read_text(encoding="utf-8").split("[dev-dependencies]")[0]:
-        insert_after(crate / "Cargo.toml", "[dependencies]\n", "serde_json = { workspace = true }\n")
+crate = root / "apps" / f"{app}-web"
+ui = f"{app}_ui_egui"
+if app in REMOTE:
+    mod_file, anchor, hook = REMOTE[app]
+    add_module(root, crate, f"apps/{app}-web/{mod_file}", "remote", ui)
+    edit(crate / "src/web.rs", anchor, anchor + hook)
+    cargo = crate / "Cargo.toml"
+    if "\nserde_json" not in cargo.read_text(encoding="utf-8").split("[dev-dependencies]")[0]:
+        edit(cargo, "[dependencies]\n", "[dependencies]\nserde_json = { workspace = true }\n")
+if app in STORAGE:
+    mod_file, edits = STORAGE[app]
+    add_module(root, crate, mod_file, "storage", ui)
+    for file, old, new in edits:
+        edit(root / file, old, new)

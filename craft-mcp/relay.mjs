@@ -4,7 +4,8 @@
 //   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
 //   https://<host>/<key>/<app>/mcp     the MCP client
 //   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
-//   POST /mint?app=<app>&hours=<n>     the same as JSON, for callers sending X-Mint-Secret: MCP_KEY
+//   POST /mint?app=<app>&hours=<n>     the same as JSON          } for the proxy in front of the apps,
+//   /storage/<app>/<action>            cloud storage (storage.mjs) } which sends X-Gateway-Secret: MCP_KEY
 //
 // A key is <expiry>.<nonce>.<signature> signed with MCP_KEY, so keys need no storage and expire.
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -15,6 +16,7 @@ import { createInterface } from "node:readline";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WebSocketServer } from "ws";
+import { handleStorage } from "./storage.mjs";
 
 const MASTER = process.env.MCP_KEY ?? "";
 if (MASTER.length < 16) throw new Error("MCP_KEY must be at least 16 characters");
@@ -117,9 +119,11 @@ const readBody = async (req) => {
   return body ? JSON.parse(body) : undefined;
 };
 
+const fromProxy = (req) => same(req.headers["x-gateway-secret"] ?? "", MASTER);
+
 const mintRequest = (req, res, url) => {
   const app = url.searchParams.get("app");
-  if (req.method !== "POST" || !same(req.headers["x-mint-secret"] ?? "", MASTER) || !(app in BRIDGE) || !PUBLIC_HOST) {
+  if (req.method !== "POST" || !fromProxy(req) || !(app in BRIDGE) || !PUBLIC_HOST) {
     return res.writeHead(404).end();
   }
   const { key, expires } = mint(Number(url.searchParams.get("hours")) || 24);
@@ -134,6 +138,11 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://relay");
   if (url.pathname === "/healthz") return res.end("ok");
   if (url.pathname === "/mint") return mintRequest(req, res, url);
+  if (url.pathname.startsWith("/storage/")) {
+    const [, , app, action] = url.pathname.split("/");
+    if (!fromProxy(req) || !(app in BRIDGE)) return res.writeHead(404).end();
+    return handleStorage(req, res, app, action, url);
+  }
   const [key, app, leaf] = url.pathname.split("/").filter(Boolean);
   if (!valid(key) || !(app in BRIDGE) || leaf !== "mcp") return res.writeHead(404).end();
   try {
