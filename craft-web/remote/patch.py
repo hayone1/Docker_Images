@@ -42,6 +42,27 @@ STORAGE = {
             ),
         ],
     ),
+    "vectorcraft": (
+        "apps/vectorcraft-web/src/main.rs",
+        [
+            (
+                "apps/vectorcraft-web/src/web.rs",
+                "let services = services(host.inbox.clone(), host.place_inbox.clone(), ctx.clone(), host.locks.clone());",
+                "let mut services = services(host.inbox.clone(), host.place_inbox.clone(), ctx.clone(), host.locks.clone());"
+                " crate::storage::install(&mut services, host.inbox.clone(), ctx.clone());",
+            ),
+            (
+                "crates/ui-egui/src/lib.rs",
+                "io::open_bytes(self, &name, &bytes, None)",
+                """io::open_bytes(self, name.rsplit('/').next().filter(|_| name.starts_with("cloud:")).unwrap_or(name.as_str()), &bytes, name.starts_with("cloud:").then(|| name.clone()))""",
+            ),
+            (
+                "crates/ui-egui/src/io.rs",
+                "dl(&fileio::file_name(path), bytes);",
+                'dl(&if path.starts_with("cloud:") { path.to_string() } else { fileio::file_name(path) }, bytes);',
+            ),
+        ],
+    ),
 }
 
 
@@ -54,7 +75,8 @@ def edit(path, old, new):
 
 def add_module(root, crate, mod_file, name, ui):
     here = pathlib.Path(__file__).parent
-    source = (here / f"{name}.rs").read_text(encoding="utf-8").replace("__UI__", ui)
+    template = here / f"{name}-{crate.name.removesuffix('-web')}.rs"
+    source = (template if template.exists() else here / f"{name}.rs").read_text(encoding="utf-8").replace("__UI__", ui)
     (crate / "src" / f"{name}.rs").write_text(source, encoding="utf-8")
     edit(root / mod_file, WASM + "mod web;\n", WASM + "mod web;\n" + WASM + f"mod {name};\n")
 
