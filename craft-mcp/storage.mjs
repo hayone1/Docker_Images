@@ -19,6 +19,9 @@
 //                         no groups: every signed-in user
 //   GROUPS_SFTPGO_URL, GROUPS_SFTPGO_API_KEY
 //                         also take the user's groups from an SFTPGo user of the same name
+//
+// The session cookie also signs people in to the apps themselves when the proxy in front of them
+// asks /session/check (sign-in with the provider instead of a shared password).
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -45,7 +48,7 @@ const unseal = (token) => {
   return value.exp > Date.now() ? value : null;
 };
 const cookies = (req) => Object.fromEntries((req.headers.cookie ?? "").split(/;\s*/).filter(Boolean).map((c) => [c.slice(0, c.indexOf("=")), c.slice(c.indexOf("=") + 1)]));
-const cookie = (name, value, maxAge) => `${name}=${value}; Path=/_storage; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+const cookie = (name, value, maxAge, path = "/") => `${name}=${value}; Path=${path}; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 const json = (res, status, body, headers = {}) => res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers }).end(JSON.stringify(body));
 
 let discovery;
@@ -81,7 +84,7 @@ const body = async (req) => { const chunks = []; for await (const c of req) chun
 
 export async function handleStorage(req, res, app, action, url) {
   if (!configured) return action === "config" ? json(res, 200, { enabled: false }) : json(res, 404, { error: "cloud storage is not configured" });
-  const user = unseal(cookies(req).craft_storage);
+  const user = unseal(cookies(req).craft_session);
   const q = url.searchParams;
   try {
     switch (action) {
@@ -101,7 +104,10 @@ export async function handleStorage(req, res, app, action, url) {
           response_type: "code", client_id: env.AUTH_CLIENT_ID, redirect_uri: redirectUri(app), scope: env.AUTH_SCOPES || "openid profile email",
           state, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
         });
-        return res.writeHead(302, { location: auth.href, "set-cookie": cookie("craft_oidc", seal({ verifier, state, exp: Date.now() + 600_000 }), 600) }).end();
+        // A top-level sign-in (the app's own login) returns to the page it came from.
+        const back = q.get("return");
+        const pending = { verifier, state, back: back?.startsWith("/") && !back.startsWith("//") ? back : null, exp: Date.now() + 600_000 };
+        return res.writeHead(302, { location: auth.href, "set-cookie": cookie("craft_oidc", seal(pending), 600, "/_storage") }).end();
       }
       case "callback": {
         const pending = unseal(cookies(req).craft_oidc);
@@ -120,10 +126,12 @@ export async function handleStorage(req, res, app, action, url) {
         const u = claims[env.AUTH_USERNAME_CLAIM || "preferred_username"] ?? claims.sub;
         if (!u || /[/\\]|^\.\.?$/.test(u)) return finish(res, false, "Your account has no usable user name.");
         const session = seal({ u, n: claims.name, g: await groupsOf(u, claims), exp: Date.now() + SESSION_MS });
-        return finish(res, true, "", [cookie("craft_storage", session, SESSION_MS / 1000), cookie("craft_oidc", "", 0)]);
+        const set = [cookie("craft_session", session, SESSION_MS / 1000), cookie("craft_oidc", "", 0, "/_storage")];
+        if (pending.back) return res.writeHead(302, { location: pending.back, "set-cookie": set, "cache-control": "no-store" }).end();
+        return finish(res, true, "", set);
       }
       case "logout":
-        return json(res, 200, {}, { "set-cookie": cookie("craft_storage", "", 0) });
+        return json(res, 200, {}, { "set-cookie": cookie("craft_session", "", 0) });
     }
     if (!user) return json(res, 401, { error: "sign in first" });
     if (action === "list" && req.method === "GET") {
@@ -172,3 +180,12 @@ function finish(res, ok, message, setCookies = []) {
     `<script>window.opener?.postMessage(${payload}, location.origin);${ok ? "window.close();" : ""}</script>`,
   );
 }
+
+// For the proxy's auth_request: 204 with a valid session, else 401.
+export const checkSession = (req, res) => res.writeHead(configured && unseal(cookies(req).craft_session) ? 204 : 401).end();
+
+// What the proxy shows instead of an app without a session: on to the provider, back to this page.
+export const loginPage = (res) => res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(
+  `<!doctype html><meta charset="utf-8"><title>Sign in</title><body style="background:#1c1c1c">` +
+  `<script>location.replace("/_storage/login?return=" + encodeURIComponent(location.pathname + location.search + location.hash))</script>`,
+);

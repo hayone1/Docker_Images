@@ -16,7 +16,7 @@ import { createInterface } from "node:readline";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WebSocketServer } from "ws";
-import { handleStorage } from "./storage.mjs";
+import { checkSession, handleStorage, loginPage } from "./storage.mjs";
 
 const MASTER = process.env.MCP_KEY ?? "";
 if (MASTER.length < 16) throw new Error("MCP_KEY must be at least 16 characters");
@@ -138,6 +138,8 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://relay");
   if (url.pathname === "/healthz") return res.end("ok");
   if (url.pathname === "/mint") return mintRequest(req, res, url);
+  if (url.pathname === "/session/check") return fromProxy(req) ? checkSession(req, res) : res.writeHead(404).end();
+  if (url.pathname === "/session/login-page") return fromProxy(req) ? loginPage(res) : res.writeHead(404).end();
   if (url.pathname.startsWith("/storage/")) {
     const [, , app, action] = url.pathname.split("/");
     if (!fromProxy(req) || !(app in BRIDGE)) return res.writeHead(404).end();
