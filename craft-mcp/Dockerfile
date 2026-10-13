@@ -22,7 +22,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=cli /out/ /usr/local/bin/
-COPY relay.mjs storage.mjs ./
+COPY relay.mjs storage.mjs chat.mjs ./
 USER node
 EXPOSE 8080
 CMD ["node", "relay.mjs"]

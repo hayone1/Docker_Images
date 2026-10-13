@@ -3,6 +3,7 @@
 //
 //   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
 //   https://<host>/<key>/<app>/mcp     the MCP client
+//   https://<host>/<key>/<app>/chat    the in-app chat (chat.mjs), driving the tab with the same tools
 //   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
 //   POST /mint?app=<app>&hours=<n>     the same as JSON          } for the proxy in front of the apps,
 //   /storage/<app>/<action>            cloud storage (storage.mjs) } which sends X-Gateway-Secret: MCP_KEY
@@ -16,6 +17,7 @@ import { createInterface } from "node:readline";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WebSocketServer } from "ws";
+import { handleChat } from "./chat.mjs";
 import { checkSession, handleStorage, loginPage } from "./storage.mjs";
 
 const MASTER = process.env.MCP_KEY ?? "";
@@ -89,10 +91,16 @@ const controlServer = (slot) => net.createServer((socket) => {
   socket.on("error", () => {});
 });
 
-async function openSession(key, app) {
-  const control = controlServer(`${key}/${app}`);
+// The app's CLI as an MCP server over stdio, bridged to the tab of `slot`.
+async function startCli(slot, app) {
+  const control = controlServer(slot);
   await new Promise((resolve) => control.listen(0, "127.0.0.1", resolve));
   const cli = new StdioClientTransport({ command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], stderr: "inherit" });
+  return { cli, close: () => { control.close(); cli.close().catch(() => {}); } };
+}
+
+async function openSession(key, app) {
+  const { cli, close } = await startCli(`${key}/${app}`, app);
   const session = { key, app, seen: Date.now() };
   const http = new StreamableHTTPServerTransport({
     sessionIdGenerator: randomUUID,
@@ -101,8 +109,7 @@ async function openSession(key, app) {
   session.http = http;
   session.close = () => {
     sessions.delete(http.sessionId);
-    control.close();
-    cli.close().catch(() => {});
+    close();
     http.close().catch(() => {});
   };
   http.onmessage = (msg) => cli.send(msg).catch(() => session.close());
@@ -146,8 +153,12 @@ const server = createServer(async (req, res) => {
     return handleStorage(req, res, app, action, url);
   }
   const [key, app, leaf] = url.pathname.split("/").filter(Boolean);
-  if (!valid(key) || !(app in BRIDGE) || leaf !== "mcp") return res.writeHead(404).end();
+  if (!valid(key) || !(app in BRIDGE) || (leaf !== "mcp" && leaf !== "chat")) return res.writeHead(404).end();
   try {
+    if (leaf === "chat") {
+      const body = req.method === "POST" ? await readBody(req) : undefined;
+      return await handleChat(req, res, `${key}/${app}`, app, body, startCli);
+    }
     const body = req.method === "POST" ? await readBody(req) : undefined;
     const id = req.headers["mcp-session-id"];
     let session = id && sessions.get(id);
