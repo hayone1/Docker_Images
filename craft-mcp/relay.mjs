@@ -3,7 +3,7 @@
 //
 //   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
 //   https://<host>/<key>/<app>/mcp     the MCP client
-//   https://<host>/<key>/<app>/chat    the in-app chat (chat.mjs), driving the tab with the same tools
+//   https://<host>/<key>/<app>/chat    the in-app chat (chat.mjs): Claude Code driving the tab with the same tools
 //   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
 //   POST /mint?app=<app>&hours=<n>     the same as JSON          } for the proxy in front of the apps,
 //   /storage/<app>/<action>            cloud storage (storage.mjs) } which sends X-Gateway-Secret: MCP_KEY
@@ -91,12 +91,18 @@ const controlServer = (slot) => net.createServer((socket) => {
   socket.on("error", () => {});
 });
 
-// The app's CLI as an MCP server over stdio, bridged to the tab of `slot`.
-async function startCli(slot, app) {
+// A bridge server for the tab of `slot`, and the app CLI command line (an MCP server over stdio)
+// that connects to it.
+async function bridge(slot, app) {
   const control = controlServer(slot);
   await new Promise((resolve) => control.listen(0, "127.0.0.1", resolve));
-  const cli = new StdioClientTransport({ command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], stderr: "inherit" });
-  return { cli, close: () => { control.close(); cli.close().catch(() => {}); } };
+  return { command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], close: () => control.close() };
+}
+
+async function startCli(slot, app) {
+  const { command, args, close } = await bridge(slot, app);
+  const cli = new StdioClientTransport({ command, args, stderr: "inherit" });
+  return { cli, close: () => { close(); cli.close().catch(() => {}); } };
 }
 
 async function openSession(key, app) {
@@ -157,7 +163,7 @@ const server = createServer(async (req, res) => {
   try {
     if (leaf === "chat") {
       const body = req.method === "POST" ? await readBody(req) : undefined;
-      return await handleChat(req, res, `${key}/${app}`, app, body, startCli);
+      return await handleChat(req, res, `${key}/${app}`, app, body, bridge);
     }
     const body = req.method === "POST" ? await readBody(req) : undefined;
     const id = req.headers["mcp-session-id"];
