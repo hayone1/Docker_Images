@@ -13,7 +13,7 @@ on:
     - cron: '17 */3 * * *'
   push:
     branches: [main]
-    paths: ['craft-web/**', 'craft-mcp/**', 'craft-hub/**', '.github/workflows/craft-web.yml']
+    paths: ['craft-web/**', 'craft-mcp/**', '.github/workflows/craft-web.yml']
   workflow_dispatch:
     inputs:
       force:
@@ -299,25 +299,23 @@ jobs:
             hayone/craft-mcp:${{ steps.versions.outputs.tag }}
             hayone/craft-mcp:latest
 
-  craft-hub:
-    name: craft-hub
+  craft-ai-hub:
+    name: craft-ai-hub
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - name: Check out the repo
+      - name: Check out hayone1/craft-ai-hub
         uses: actions/checkout@v5
+        with:
+          repository: hayone1/craft-ai-hub
 
       - name: Tag from source
         id: version
-        # One tag per version of the hub's source.
-        run: echo "tag=$(find craft-hub -type f | sort | xargs cat | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Check Docker Hub for existing tag
         id: exists
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' \
-            "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-hub/tags/${{ steps.version.outputs.tag }}")
+          code=$(curl -s -o /dev/null -w '%{http_code}'             "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-ai-hub/tags/${{ steps.version.outputs.tag }}")
           if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
@@ -343,9 +341,21 @@ jobs:
         if: steps.exists.outputs.skip != 'true'
         uses: docker/build-push-action@v6
         with:
-          context: craft-hub
+          context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          labels: |
+            org.opencontainers.image.source=https://github.com/hayone1/craft-ai-hub
+            org.opencontainers.image.revision=${{ steps.version.outputs.tag }}
           tags: |
-            hayone/craft-hub:${{ steps.version.outputs.tag }}
-            hayone/craft-hub:latest
+            hayone/craft-ai-hub:${{ steps.version.outputs.tag }}
+            hayone/craft-ai-hub:latest
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKER_PASSWORD }}
+          repository: hayone/craft-ai-hub
+          short-description: Launcher, proxy and Claude Code assistant overlay for the storytold craft web apps
+          readme-filepath: README.md

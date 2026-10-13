@@ -10,7 +10,9 @@
 //   AUTH_USERNAME_CLAIM   default preferred_username
 //   AUTH_GROUPS_CLAIM     claim listing the user's groups, when the provider sends one
 //   AUTH_SESSION_HOURS    default 168
-//   APP_ORIGIN            app origin with {app}, e.g. https://{app}.example.org
+//   APP_ORIGIN            app origin with {app}, e.g. https://{app}.example.org; a proxy that
+//                         serves the apps elsewhere (craft-ai-hub) names its origin per request
+//                         in X-Craft-Origin, which is trusted like X-Gateway-Secret
 //   STORAGE_NAME          shown in the apps, default "Cloud"
 //   STORAGE_S3_ENDPOINT, STORAGE_S3_REGION, STORAGE_S3_BUCKET, STORAGE_S3_ACCESS_KEY,
 //   STORAGE_S3_SECRET_KEY, STORAGE_S3_PATH_STYLE (default true)
@@ -53,7 +55,7 @@ const json = (res, status, body, headers = {}) => res.writeHead(status, { "conte
 
 let discovery;
 const provider = async () => (discovery ??= await fetch(`${env.AUTH_ISSUER.replace(/\/$/, "")}/.well-known/openid-configuration`).then((r) => r.json()));
-const redirectUri = (app) => `${env.APP_ORIGIN.replace("{app}", app)}/_storage/callback`;
+const redirectUri = (req, app) => `${(req.headers["x-craft-origin"] || env.APP_ORIGIN.replace("{app}", app)).replace(/\/$/, "")}/_storage/callback`;
 
 async function groupsOf(username, claims) {
   const groups = new Set([claims[env.AUTH_GROUPS_CLAIM]].flat().filter((g) => typeof g === "string"));
@@ -101,7 +103,7 @@ export async function handleStorage(req, res, app, action, url) {
         const state = randomBytes(16).toString("base64url");
         const auth = new URL(p.authorization_endpoint);
         auth.search = new URLSearchParams({
-          response_type: "code", client_id: env.AUTH_CLIENT_ID, redirect_uri: redirectUri(app), scope: env.AUTH_SCOPES || "openid profile email",
+          response_type: "code", client_id: env.AUTH_CLIENT_ID, redirect_uri: redirectUri(req, app), scope: env.AUTH_SCOPES || "openid profile email",
           state, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256",
         });
         // A top-level sign-in (the app's own login) returns to the page it came from.
@@ -117,7 +119,7 @@ export async function handleStorage(req, res, app, action, url) {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
-            grant_type: "authorization_code", code: q.get("code") ?? "", redirect_uri: redirectUri(app), code_verifier: pending.verifier,
+            grant_type: "authorization_code", code: q.get("code") ?? "", redirect_uri: redirectUri(req, app), code_verifier: pending.verifier,
             client_id: env.AUTH_CLIENT_ID, ...(env.AUTH_CLIENT_SECRET ? { client_secret: env.AUTH_CLIENT_SECRET } : {}),
           }),
         }).then((r) => r.json());
