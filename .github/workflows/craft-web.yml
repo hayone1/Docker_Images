@@ -33,11 +33,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [photocraft, designcraft, vectorcraft, lightcraft, filmcraft, pdfcraft, effectcraft]
+        app: [photocraft, designcraft, vectorcraft, lightcraft, filmcraft, pdfcraft, effectcraft,
+              figcraft, gridcraft, cadcraft, deckcraft, soundcraft, wordcraft]
         variant: [official, remote]
         exclude:
           - { app: designcraft, variant: remote }
           - { app: pdfcraft, variant: remote }
+          # No craft-mcp support yet: official image only.
+          - { app: figcraft, variant: remote }
+          - { app: gridcraft, variant: remote }
+          - { app: cadcraft, variant: remote }
+          - { app: deckcraft, variant: remote }
+          - { app: soundcraft, variant: remote }
+          - { app: wordcraft, variant: remote }
     permissions:
       contents: read
       attestations: write

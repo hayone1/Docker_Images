@@ -39,6 +39,9 @@ pub fn install(services: &mut Services) {
                     call("chooseOpen", &[exts]).await
                 }
                 FileDialogRequest::Save { suggested } => call("chooseSave", &[suggested.into()]).await,
+                // Folder (photocraft 0.8.2+) and any later kind: the cloud has no folders, so this device answers.
+                #[allow(unreachable_patterns)]
+                _ => return (device_dialog.borrow_mut())(request, None, reply),
             };
             match choice {
                 Ok(c) if c.as_string().as_deref() == Some("device") || c.is_undefined() => (device_dialog.borrow_mut())(request, None, reply),
