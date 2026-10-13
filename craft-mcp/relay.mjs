@@ -3,7 +3,6 @@
 //
 //   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
 //   https://<host>/<key>/<app>/mcp     the MCP client
-//   https://<host>/<key>/<app>/chat    the in-app chat (chat.mjs): Claude Code driving the tab with the same tools
 //   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
 //   POST /mint?app=<app>&hours=<n>     the same as JSON          } for the proxy in front of the apps,
 //   /storage/<app>/<action>            cloud storage (storage.mjs) } which sends X-Gateway-Secret: MCP_KEY
@@ -17,7 +16,6 @@ import { createInterface } from "node:readline";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WebSocketServer } from "ws";
-import { handleChat } from "./chat.mjs";
 import { checkSession, handleStorage, loginPage } from "./storage.mjs";
 
 const MASTER = process.env.MCP_KEY ?? "";
@@ -91,22 +89,10 @@ const controlServer = (slot) => net.createServer((socket) => {
   socket.on("error", () => {});
 });
 
-// A bridge server for the tab of `slot`, and the app CLI command line (an MCP server over stdio)
-// that connects to it.
-async function bridge(slot, app) {
-  const control = controlServer(slot);
-  await new Promise((resolve) => control.listen(0, "127.0.0.1", resolve));
-  return { command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], close: () => control.close() };
-}
-
-async function startCli(slot, app) {
-  const { command, args, close } = await bridge(slot, app);
-  const cli = new StdioClientTransport({ command, args, stderr: "inherit" });
-  return { cli, close: () => { close(); cli.close().catch(() => {}); } };
-}
-
 async function openSession(key, app) {
-  const { cli, close } = await startCli(`${key}/${app}`, app);
+  const control = controlServer(`${key}/${app}`);
+  await new Promise((resolve) => control.listen(0, "127.0.0.1", resolve));
+  const cli = new StdioClientTransport({ command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], stderr: "inherit" });
   const session = { key, app, seen: Date.now() };
   const http = new StreamableHTTPServerTransport({
     sessionIdGenerator: randomUUID,
@@ -115,7 +101,8 @@ async function openSession(key, app) {
   session.http = http;
   session.close = () => {
     sessions.delete(http.sessionId);
-    close();
+    control.close();
+    cli.close().catch(() => {});
     http.close().catch(() => {});
   };
   http.onmessage = (msg) => cli.send(msg).catch(() => session.close());
@@ -140,10 +127,12 @@ const mintRequest = (req, res, url) => {
     return res.writeHead(404).end();
   }
   const { key, expires } = mint(Number(url.searchParams.get("hours")) || 24);
+  // PUBLIC_HOST is a host and optional path (craft-hub: <host>/_relay), https unless it names http://.
+  const base = PUBLIC_HOST.includes("://") ? PUBLIC_HOST.replace(/\/$/, "") : `https://${PUBLIC_HOST}`;
   res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify({
     expires,
-    tab: `wss://${PUBLIC_HOST}/${key}/tab/${app}`,
-    mcp: `https://${PUBLIC_HOST}/${key}/${app}/mcp`,
+    tab: `${base.replace(/^http/, "ws")}/${key}/tab/${app}`,
+    mcp: `${base}/${key}/${app}/mcp`,
   }));
 };
 
@@ -159,12 +148,8 @@ const server = createServer(async (req, res) => {
     return handleStorage(req, res, app, action, url);
   }
   const [key, app, leaf] = url.pathname.split("/").filter(Boolean);
-  if (!valid(key) || !(app in BRIDGE) || (leaf !== "mcp" && leaf !== "chat")) return res.writeHead(404).end();
+  if (!valid(key) || !(app in BRIDGE) || leaf !== "mcp") return res.writeHead(404).end();
   try {
-    if (leaf === "chat") {
-      const body = req.method === "POST" ? await readBody(req) : undefined;
-      return await handleChat(req, res, `${key}/${app}`, app, body, bridge);
-    }
     const body = req.method === "POST" ? await readBody(req) : undefined;
     const id = req.headers["mcp-session-id"];
     let session = id && sessions.get(id);

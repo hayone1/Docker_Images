@@ -13,7 +13,7 @@ on:
     - cron: '17 */3 * * *'
   push:
     branches: [main]
-    paths: ['craft-web/**', 'craft-mcp/**', '.github/workflows/craft-web.yml']
+    paths: ['craft-web/**', 'craft-mcp/**', 'craft-hub/**', '.github/workflows/craft-web.yml']
   workflow_dispatch:
     inputs:
       force:
@@ -298,3 +298,54 @@ jobs:
           tags: |
             hayone/craft-mcp:${{ steps.versions.outputs.tag }}
             hayone/craft-mcp:latest
+
+  craft-hub:
+    name: craft-hub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      - name: Tag from source
+        id: version
+        # One tag per version of the hub's source.
+        run: echo "tag=$(find craft-hub -type f | sort | xargs cat | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - name: Check Docker Hub for existing tag
+        id: exists
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-hub/tags/${{ steps.version.outputs.tag }}")
+          if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up QEMU
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: craft-hub
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            hayone/craft-hub:${{ steps.version.outputs.tag }}
+            hayone/craft-hub:latest

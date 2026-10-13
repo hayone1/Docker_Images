@@ -1,10 +1,10 @@
 // Cloud storage for File › Open and Save: `window.craftStorage`, used by the app (storage.rs).
-// The server side is /_storage on this origin; without it configured the app keeps its own
+// The server side is _storage/ next to the page (the site root, or craft-hub's /<app>/); without it configured the app keeps its own
 // dialogs. Paths look like cloud:<folder id>/<path>.
 (() => {
   const app = document.currentScript.dataset.app;
   const LAST = "craftStorage.last";
-  const api = (action, params = {}, init) => fetch(`/_storage/${action}?${new URLSearchParams(params)}`, { credentials: "same-origin", cache: "no-store", ...init });
+  const api = (action, params = {}, init) => fetch(`_storage/${action}?${new URLSearchParams(params)}`, { credentials: "same-origin", cache: "no-store", ...init });
   const getJson = async (action, params, init) => {
     const r = await api(action, params, init);
     const body = await r.json().catch(() => ({}));
@@ -79,7 +79,7 @@
   };
 
   const signIn = () => new Promise((resolve) => {
-    const w = window.open(`/_storage/login`, "craft-sign-in", "width=520,height=680");
+    const w = window.open(`_storage/login`, "craft-sign-in", "width=520,height=680");
     const done = async (e) => {
       if (e.origin !== location.origin || e.data?.type !== "craft-storage-sign-in") return;
       window.removeEventListener("message", done);
