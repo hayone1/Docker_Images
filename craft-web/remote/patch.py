@@ -35,10 +35,12 @@ STORAGE = {
                 "PhotocraftApp::new(session, services(inbox.clone()))",
                 "PhotocraftApp::new(session, { let mut s = services(inbox.clone()); crate::storage::install(&mut s); s })",
             ),
+            # A file picked from the cloud opens with its cloud: path, so Save writes it back.
             (
-                "crates/ui-egui/src/lib.rs",
-                "let (_, color) = self.session.open_document(doc, None);",
-                'let (_, color) = self.session.open_document(doc, name.starts_with("cloud:").then(|| name.to_string()));',
+                "crates/ui-egui/src/file_dialog.rs",
+                "            if let Err(e) = self.open_bytes(&name, &bytes) {",
+                '            let cloud = name.starts_with("cloud:").then_some(name.as_str());\n'
+                "            if let Err(e) = self.open_bytes_from(cloud.and_then(|p| p.rsplit('/').next()).unwrap_or(&name), &bytes, cloud) {",
             ),
         ],
     ),

@@ -58,7 +58,8 @@ pub fn install(services: &mut Services, inbox: Inbox, ctx: egui::Context) {
     let device_download = Rc::new(RefCell::new(device_download));
     services.download = Some(Box::new(move |name: &str, bytes: &[u8]| {
         if name.starts_with("cloud:") {
-            return write(name.to_string(), bytes);
+            write(name.to_string(), bytes);
+            return Ok(());
         }
         if storage().is_none() {
             return (device_download.borrow_mut())(name, bytes);
@@ -68,8 +69,11 @@ pub fn install(services: &mut Services, inbox: Inbox, ctx: egui::Context) {
             match call("chooseSave", &[name.clone().into()]).await {
                 Ok(c) if c.is_null() => {}
                 Ok(c) if c.as_string().is_some_and(|p| p.starts_with("cloud:")) => write(c.as_string().unwrap_or_default(), &bytes),
-                _ => (device_download.borrow_mut())(&name, &bytes),
+                _ => {
+                    let _ = (device_download.borrow_mut())(&name, &bytes);
+                }
             }
         });
+        Ok(())
     }));
 }
