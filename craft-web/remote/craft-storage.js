@@ -261,6 +261,8 @@
       } catch (e) {
         toast(e.status === 401 ? `Not saved: sign in to ${config.name} again (File › Save As).` : `Couldn't save ${name}: ${e.message}`, true, true);
         setTimeout(() => (root.querySelector(".toast").hidden = true), 10000);
+        // The app keeps the document unsaved only when the write rejects.
+        throw e;
       }
     },
   };
