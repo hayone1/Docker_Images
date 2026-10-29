@@ -46,17 +46,17 @@ STORAGE = {
         [
             (
                 "apps/vectorcraft-web/src/web.rs",
-                "let services = services(host.inbox.clone(), host.place_inbox.clone(), ctx.clone(), host.locks.clone());",
-                "let mut services = services(host.inbox.clone(), host.place_inbox.clone(), ctx.clone(), host.locks.clone());"
-                " crate::storage::install(&mut services, host.inbox.clone(), ctx.clone());",
+                # 0.18 added a stylus argument, so match whatever follows the inbox.
+                re.compile(r"let services = (services\(host\.inbox\.clone\(\), .*\));$", re.M),
+                r"let mut services = \1; crate::storage::install(&mut services, host.inbox.clone(), ctx.clone());",
             ),
             (
-                "crates/ui-egui/src/lib.rs",
+                "crates/ui-egui/src/app/files.rs",
                 "io::open_bytes(self, &name, &bytes, None)",
                 """io::open_bytes(self, name.rsplit('/').next().filter(|_| name.starts_with("cloud:")).unwrap_or(name.as_str()), &bytes, name.starts_with("cloud:").then(|| name.clone()))""",
             ),
             (
-                "crates/ui-egui/src/io.rs",
+                "crates/ui-egui/src/io/save.rs",
                 "dl(&fileio::file_name(path), bytes);",
                 'dl(&if path.starts_with("cloud:") { path.to_string() } else { fileio::file_name(path) }, bytes);',
             ),
