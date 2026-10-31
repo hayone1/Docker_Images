@@ -147,6 +147,19 @@ jobs:
           mv "/tmp/web/$APP-web-${{ steps.release.outputs.version }}" craft-web/site
           test -s craft-web/site/index.html
 
+      - name: Put the wasm-bindgen snippets next to the app's glue
+        # photocraft 0.17 and 0.18 ship app/photocraft-web.js, which imports ./snippets/…, but
+        # keep snippets/ only at the site root, so the page stays on "Loading PhotoCraft…"
+        # (storytold/photocraft#10491). Copy them where the glue looks; a fixed release skips this.
+        if: steps.exists.outputs.skip != 'true'
+        run: |
+          site=craft-web/site
+          if [ -d "$site/app" ] && [ -d "$site/snippets" ] && [ ! -d "$site/app/snippets" ] \
+            && grep -qs '\./snippets/' "$site"/app/*.js; then
+            cp -R "$site/snippets" "$site/app/snippets"
+            echo "Copied snippets/ into app/"
+          fi
+
       - name: Add the relay client
         if: steps.exists.outputs.skip != 'true' && matrix.variant == 'remote'
         run: python3 craft-web/remote/inject.py "$APP" craft-web/site
