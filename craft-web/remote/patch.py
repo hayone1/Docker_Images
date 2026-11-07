@@ -18,8 +18,10 @@ REMOTE = {
     ),
     "lightcraft": (
         "src/lib.rs",
-        "            .with_chinese_font(chinese_font);",
-        "        app = app.with_control(crate::remote::install(&cc.egui_ctx));\n",
+        "let mut app = LightcraftApp::new(session, services)",
+        # with_control keeps CPU copies of photo textures for headless screenshots; not on the web
+        "        app = app.with_control(crate::remote::install(&cc.egui_ctx));\n"
+        "        app.renderer.keep_pixels = false;\n",
     ),
 }
 # app: (file declaring `mod web;`, [(file, old text or pattern, new)])
