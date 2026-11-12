@@ -40,6 +40,23 @@
     wait();
   });
 
+  // Requests that name a file (craft-storage.js keeps the files; the app's storage.rs asks it).
+  // The app reads and writes at once, while craft-storage needs promises: read the file before
+  // the request, and wait for the writes after it, so the reply says whether the file is saved.
+  // Only photocraft's storage.rs answers the app's file requests so far.
+  const FILE_METHODS = app === "photocraft" ? { "app.open": { read: true }, "app.save": {}, "ui.screenshot": {} } : {};
+  const withFiles = async (method, params, request) => {
+    const storage = window.craftStorage;
+    if (!storage?.automationPrepare || !Object.hasOwn(FILE_METHODS, method)) return request(method, params);
+    if (typeof params.path === "string" && params.path) {
+      try { await storage.automationPrepare(params.path, FILE_METHODS[method]); }
+      catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+    }
+    const reply = await request(method, params);
+    const failed = await storage.automationSettle();
+    return failed && reply?.ok ? { ok: false, error: failed } : reply;
+  };
+
   let ws;
   let timer;
   let delay = 1000;
@@ -62,7 +79,7 @@
       let msg;
       try { msg = JSON.parse(data); } catch { return; }
       const request = await ready;
-      const reply = await request(msg.method, msg.params ?? {}).catch((e) => ({ ok: false, error: String(e) }));
+      const reply = await withFiles(msg.method, msg.params ?? {}, request).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ ...reply, id: msg.id ?? null }));
     };
   };
