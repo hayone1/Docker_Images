@@ -315,5 +315,64 @@
         throw e;
       }
     },
+
+    // ---- files for the AI assistant (craft-remote.js and the app's storage.rs) ----------------
+    // The assistant names files by path: a path in the editor's workspace as the editor's machine
+    // sees it (/home/coder/project/cat.png), or a cloud: path. craft-remote.js calls
+    // automationPrepare before a request that names a file; the app then calls automationRead and
+    // automationWrite, which must answer at once; craft-remote.js awaits automationSettle after.
+    async automationPrepare(path, { read = false } = {}) {
+      await ready;
+      const target = await whereIs(path);
+      if (read) {
+        const { root: r, path: inside } = split(target);
+        const place = placeOf(r);
+        let bytes;
+        if (place) bytes = toBytes(await place.read(inside));
+        else {
+          const res = await api("file", { root: r, path: inside });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `the server answered ${res.status}`);
+          bytes = new Uint8Array(await res.arrayBuffer());
+        }
+        if (!bytes) throw new Error(`no file came back for ${path}`);
+        readCache.set(path, { name: inside.split("/").pop() || path, bytes });
+      }
+    },
+    automationRead(path) {
+      const got = readCache.get(path);
+      readCache.delete(path);
+      return got ?? `${path} wasn't read first; ask again.`;
+    },
+    automationWrite(path, bytes) {
+      const target = aliases.get(path) ?? (path.startsWith("cloud:") ? path : null);
+      if (!target) return `${path} can't be written here: name a file in the editor's workspace, or a cloud: path.`;
+      pending.push(this.write(target, bytes).then(() => null, (e) => `Couldn't save ${path}: ${e.message}`));
+      return null;
+    },
+    async automationSettle() {
+      const done = await Promise.all(pending.splice(0));
+      return done.find(Boolean) ?? null;
+    },
   };
+
+  // Paths the assistant used, mapped to cloud: paths; reads waiting for the app; writes running.
+  const aliases = new Map();
+  const readCache = new Map();
+  const pending = [];
+  async function whereIs(path) {
+    if (typeof path !== "string" || !path) throw new Error("pass a file path");
+    if (aliases.has(path)) return aliases.get(path);
+    let target = null;
+    if (path.startsWith("cloud:")) target = path;
+    else {
+      const ws = places().find((p) => typeof p.locate === "function");
+      if (!ws) {
+        throw new Error(`${path} isn't reachable: this tab can open and save files only in the editor's workspace ` +
+          "(open the app from the Craft Apps view in VS Code) or in the cloud (a cloud: path).");
+      }
+      target = `cloud:${ws.id}/${await ws.locate(path)}`;
+    }
+    aliases.set(path, target);
+    return target;
+  }
 })();

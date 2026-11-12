@@ -1,11 +1,18 @@
 //! Cloud storage through `window.craftStorage` (craft-storage.js): Open and Save offer the cloud
 //! next to this device, and a document opened from the cloud keeps its `cloud:` path, so Save
 //! writes it back.
+//!
+//! It also gives the control channel (an AI assistant through the craft-mcp relay) file access.
+//! The desktop app grants that with --automation-read-root and --automation-write-root; the
+//! browser has no file system, so `app.open`, `app.save` and `ui.screenshot` with a path go to
+//! craft-storage instead: the editor's workspace when craft-vscode frames the page, or the cloud.
+//! craft-storage works with promises and these services answer at once, so craft-remote.js reads
+//! the file before `app.open` arrives, and waits for the writes after each request.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use __UI__::{FileDialogAnswer, FileDialogRequest, Services};
+use __UI__::{AutomationReadResult, FileDialogAnswer, FileDialogRequest, Services};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 
@@ -24,7 +31,41 @@ async fn call(method: &str, args: &[JsValue]) -> Result<JsValue, JsValue> {
     JsFuture::from(promise).await
 }
 
+/// Call `craftStorage.<method>(args)` and get its answer now (the method must not return a promise).
+fn call_now(method: &str, args: &[JsValue]) -> Result<JsValue, String> {
+    let storage = storage().ok_or("this page has no file storage for the assistant")?;
+    let f: js_sys::Function = js_sys::Reflect::get(&storage, &method.into()).map_err(|_| "craft-storage is too old")?.into();
+    f.apply(&storage, &args.iter().collect::<js_sys::Array>()).map_err(|e| e.as_string().unwrap_or_else(|| "craft-storage failed".into()))
+}
+
+fn install_automation(services: &mut Services) {
+    if services.automation_read.is_none() {
+        services.automation_read = Some(Box::new(|path: &str| {
+            // An object {name, bytes}, or a string saying why there is nothing.
+            let got = call_now("automationRead", &[path.into()])?;
+            if let Some(error) = got.as_string() {
+                return Err(error);
+            }
+            let name = js_sys::Reflect::get(&got, &"name".into()).ok().and_then(|n| n.as_string()).unwrap_or_else(|| path.to_string());
+            let bytes = js_sys::Reflect::get(&got, &"bytes".into()).map(|b| js_sys::Uint8Array::new(&b).to_vec()).unwrap_or_default();
+            // Save without a path writes back to the same place.
+            Ok(AutomationReadResult { name, bytes, save_path: Some(path.to_string()) })
+        }));
+    }
+    if services.automation_write.is_none() {
+        services.automation_write = Some(Box::new(|path: &str, bytes: &[u8]| {
+            // null: the write has started (craft-remote.js reports its end); a string: refused.
+            let started = call_now("automationWrite", &[path.into(), js_sys::Uint8Array::from(bytes).into()])?;
+            match started.as_string() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        }));
+    }
+}
+
 pub fn install(services: &mut Services) {
+    install_automation(services);
     let Some(device_dialog) = services.file_dialog.take() else { return };
     let device_dialog = Rc::new(RefCell::new(device_dialog));
     services.file_dialog = Some(Box::new(move |request, parent, reply| {
