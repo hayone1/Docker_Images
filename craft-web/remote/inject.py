@@ -1,10 +1,10 @@
-"""Inline craft-remote.js and craft-storage.js into a built site: python3 inject.py <app> <site dir>."""
+"""Inline craft-files.js, craft-remote.js and craft-storage.js into a built site: python3 inject.py <app> <site dir>."""
 import pathlib
 import sys
 
 app, site = sys.argv[1], pathlib.Path(sys.argv[2])
 here = pathlib.Path(__file__).parent
-script = "".join((here / f).read_text(encoding="utf-8") for f in ("craft-remote.js", "craft-storage.js"))
+script = "".join((here / f).read_text(encoding="utf-8") for f in ("craft-files.js", "craft-remote.js", "craft-storage.js"))
 index = site / "index.html"
 html = index.read_text(encoding="utf-8")
 if html.count("</head>") != 1:

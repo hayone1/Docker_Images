@@ -289,6 +289,9 @@
     async chooseSave(suggested) {
       await ready;
       if (!config.enabled && !places().length) return "device";
+      // The AI assistant saved (craft-files.js): no dialog it can't answer. The download stays in
+      // the page, for the editor to copy into its workspace.
+      if (window.craftFiles?.quiet()) return "device";
       return dialog("save", { suggested });
     },
     async write(cloudPath, bytes) {
@@ -323,7 +326,16 @@
     // automationWrite, which must answer at once; craft-remote.js awaits automationSettle after.
     async automationPrepare(path, { read = false } = {}) {
       await ready;
-      const target = await whereIs(path);
+      let target;
+      try {
+        target = await whereIs(path);
+      } catch (e) {
+        // Not a workspace file, in a page the editor frames: the write stays in the page
+        // (craft-files.js), and the editor's craft_get_file copies it where the assistant says.
+        if (read || !window.craftFiles?.framed()) throw e;
+        keeping.add(path);
+        return;
+      }
       if (read) {
         const { root: r, path: inside } = split(target);
         const place = placeOf(r);
@@ -344,12 +356,17 @@
       return got ?? `${path} wasn't read first; ask again.`;
     },
     automationWrite(path, bytes) {
+      if (keeping.has(path)) {
+        window.craftFiles.keep(path, new Blob([bytes]));
+        return null;
+      }
       const target = aliases.get(path) ?? (path.startsWith("cloud:") ? path : null);
       if (!target) return `${path} can't be written here: name a file in the editor's workspace, or a cloud: path.`;
       pending.push(this.write(target, bytes).then(() => null, (e) => `Couldn't save ${path}: ${e.message}`));
       return null;
     },
     async automationSettle() {
+      keeping.clear();
       const done = await Promise.all(pending.splice(0));
       return done.find(Boolean) ?? null;
     },
@@ -359,6 +376,7 @@
   const aliases = new Map();
   const readCache = new Map();
   const pending = [];
+  const keeping = new Set(); // paths outside the workspace whose writes stay in the page
   async function whereIs(path) {
     if (typeof path !== "string" || !path) throw new Error("pass a file path");
     if (aliases.has(path)) return aliases.get(path);

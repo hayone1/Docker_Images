@@ -3,6 +3,7 @@
 //
 //   wss://<host>/<key>/tab/<app>       the tab (craft-remote.js)
 //   https://<host>/<key>/<app>/mcp     the MCP client
+//   POST https://<host>/<key>/<app>/files  {op, ...}: file transfers with the tab (craft-files.js)
 //   node relay.mjs mint [hours]        prints a new key, valid for [hours] (default 24)
 //   POST /mint?app=<app>&hours=<n>     the same as JSON          } for the proxy in front of the apps,
 //   /storage/<app>/<action>            cloud storage (storage.mjs) } which sends X-Gateway-Secret: MCP_KEY
@@ -61,30 +62,59 @@ const waiting = new Map();
 const sessions = new Map();
 let nextId = 1;
 
+// A request for the tab of `slot`: its reply goes to `deliver`, or a timeout after TIMEOUT_MS.
+const toTab = (slot, method, params, deliver) => {
+  const tab = tabs.get(slot);
+  if (!tab) return deliver({ ok: false, error: "no tab is connected for this key; open the app with its relay link" });
+  const relayId = nextId++;
+  const entry = { slot, relayId, deliver };
+  entry.timer = setTimeout(() => answer(entry, { ok: false, error: "timeout" }), TIMEOUT_MS);
+  waiting.set(relayId, entry);
+  tab.send(JSON.stringify({ id: relayId, method, params }));
+};
+
 const answer = (entry, reply) => {
   clearTimeout(entry.timer);
   waiting.delete(entry.relayId);
-  if (!entry.socket.destroyed) entry.socket.write(`${JSON.stringify({ ...reply, id: entry.id })}\n`);
+  entry.deliver(reply);
 };
 
 // The bridge server one CLI connects to, relaying to the tab of `slot` (<key>/<app>).
+// The CLI authenticates with the token in one `auth {token}` frame, or (photocraft 0.23+) with a
+// challenge: `auth.challenge {clientNonce}` is answered with {serverNonce, serverProof}, then
+// `auth {proof}`. A proof is HMAC-SHA256 keyed by the token over "<app>-control-v1 <role>\n<client
+// nonce>\n<server nonce>", in hex (photocraft's docs/control-protocol.md).
+const proof = (app, role, clientNonce, serverNonce) =>
+  createHmac("sha256", token).update(`${app}-control-v1 ${role}\n${clientNonce}\n${serverNonce}`).digest("hex");
+const HEX256 = /^[0-9a-f]{64}$/;
+
 const controlServer = (slot) => net.createServer((socket) => {
   const reply = (msg) => socket.write(`${JSON.stringify(msg)}\n`);
+  const app = slot.split("/")[1];
+  let challenge = null; // [client nonce, server nonce] until the `auth` that answers it
   createInterface({ input: socket }).on("line", (line) => {
     let msg;
     try { msg = JSON.parse(line); } catch { return reply({ id: null, ok: false, error: "bad JSON" }); }
     const id = msg.id ?? null;
-    if (msg.method === "auth") {
-      const ok = msg.params?.token === token;
-      return reply(ok ? { id, ok, result: { authenticated: true } } : { id, ok, error: "authentication required" });
+    const refused = { id, ok: false, error: "authentication required" };
+    if (msg.method === "auth.challenge") {
+      const clientNonce = String(msg.params?.clientNonce ?? "").toLowerCase();
+      if (!HEX256.test(clientNonce)) return reply(refused);
+      const serverNonce = randomBytes(32).toString("hex");
+      challenge = [clientNonce, serverNonce];
+      return reply({ id, ok: true, result: { serverNonce, serverProof: proof(app, "server", clientNonce, serverNonce) } });
     }
-    const tab = tabs.get(slot);
-    if (!tab) return reply({ id, ok: false, error: "no tab is connected for this key; open the app with its relay link" });
-    const relayId = nextId++;
-    const entry = { slot, socket, id, relayId };
-    entry.timer = setTimeout(() => answer(entry, { ok: false, error: "timeout" }), TIMEOUT_MS);
-    waiting.set(relayId, entry);
-    tab.send(JSON.stringify({ id: relayId, method: msg.method, params: msg.params ?? {} }));
+    if (msg.method === "auth") {
+      const answered = challenge;
+      challenge = null;
+      const ok = answered
+        ? same(String(msg.params?.proof ?? "").toLowerCase(), proof(app, "client", ...answered))
+        : msg.params?.token === token;
+      return reply(ok ? { id, ok, result: { authenticated: true } } : refused);
+    }
+    // craft.files belongs to the files endpoint below, not to the app's CLI.
+    if (msg.method === "craft.files") return reply({ id, ok: false, error: "unknown method" });
+    toTab(slot, msg.method, msg.params ?? {}, (r) => { if (!socket.destroyed) reply({ ...r, id }); });
   });
   socket.on("error", () => {});
 });
@@ -113,11 +143,31 @@ async function openSession(key, app) {
   return session;
 }
 
-const readBody = async (req) => {
+const readBody = async (req, limit = Infinity) => {
   let body = "";
-  for await (const chunk of req) body += chunk;
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > limit) throw Object.assign(new Error("request too large"), { status: 413 });
+  }
   return body ? JSON.parse(body) : undefined;
 };
+
+// File transfers between an editor (craft-vscode) and the tab: one {op, ...} request per call,
+// a file in parts of a few MB. craft-files.js in the app images answers.
+const FILES_BODY_MAX = 24 << 20;
+async function filesRequest(req, res, key, app) {
+  if (req.method !== "POST") return res.writeHead(405, { allow: "POST" }).end();
+  let params;
+  try {
+    params = await readBody(req, FILES_BODY_MAX);
+  } catch (e) {
+    return res.writeHead(e.status ?? 400).end();
+  }
+  if (!params || typeof params !== "object" || Array.isArray(params) || typeof params.op !== "string") return res.writeHead(400).end();
+  toTab(`${key}/${app}`, "craft.files", params, (reply) => {
+    if (!res.writableEnded) res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(reply));
+  });
+}
 
 const fromProxy = (req) => same(req.headers["x-gateway-secret"] ?? "", MASTER);
 
@@ -147,8 +197,10 @@ const server = createServer(async (req, res) => {
     if (!fromProxy(req) || !(app in BRIDGE)) return res.writeHead(404).end();
     return handleStorage(req, res, app, action, url);
   }
-  const [key, app, leaf] = url.pathname.split("/").filter(Boolean);
-  if (!valid(key) || !(app in BRIDGE) || leaf !== "mcp") return res.writeHead(404).end();
+  const [key, app, leaf, ...more] = url.pathname.split("/").filter(Boolean);
+  if (!valid(key) || !(app in BRIDGE) || more.length) return res.writeHead(404).end();
+  if (leaf === "files") return filesRequest(req, res, key, app);
+  if (leaf !== "mcp") return res.writeHead(404).end();
   try {
     const body = req.method === "POST" ? await readBody(req) : undefined;
     const id = req.headers["mcp-session-id"];
