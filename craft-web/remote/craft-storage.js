@@ -146,18 +146,25 @@
       const rootOf = () => roots().find((r) => r.id === rootId);
       const openable = (name) => !exts?.length || exts.includes(ext(name));
 
+      // Each load is numbered; a slower answer for a folder the person already left is dropped.
+      let loads = 0;
       async function load() {
         if (!rootOf()) { rootId = roots()[0]?.id; path = rootOf() ? path : ""; }
         if (!rootId) return render();
+        const mine = ++loads;
         busy = true; error = ""; selected = null; confirmOverwrite = null; render();
+        let found;
         try {
           const place = rootOf()?.place;
-          entries = place ? listing(await place.list(path)) : await getJson("list", { root: rootId, path });
+          found = place ? listing(await place.list(path)) : await getJson("list", { root: rootId, path });
         } catch (e) {
+          if (mine !== loads) return;
           if (e.status === 401) { await loadConfig(); }
           else if (path) { path = ""; busy = false; return load(); }
-          error = e.message; entries = { folders: [], files: [] };
+          error = e.message; found = { folders: [], files: [] };
         }
+        if (mine !== loads) return;
+        entries = found;
         busy = false;
         render();
       }
