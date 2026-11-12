@@ -1,6 +1,11 @@
 // Cloud storage for File › Open and Save: `window.craftStorage`, used by the app (storage.rs).
 // The server side is _storage/ next to the page (the site root, or craft-hub's /<app>/); without it configured the app keeps its own
 // dialogs. Paths look like cloud:<folder id>/<path>.
+//
+// The page can lend more places through window.craftStoragePlaces: the hub's overlay adds an
+// editor's workspace there when craft-vscode frames the page. A place is
+// {id, group, name, list(path) -> {folders, files: [{name, size, modified}]}, read(path) -> bytes,
+// write(path, bytes), mkdir(path)}, and its files get the paths cloud:<place id>/<path>.
 (() => {
   const app = document.currentScript.dataset.app;
   const LAST = "craftStorage.last";
@@ -19,6 +24,18 @@
     const [root, ...rest] = cloudPath.slice("cloud:".length).split("/");
     return { root, path: rest.join("/") };
   };
+  // Places lent by the page; read on every use, since the editor may come and go.
+  const places = () => (Array.isArray(window.craftStoragePlaces) ? window.craftStoragePlaces : [])
+    .filter((p) => p && typeof p.id === "string" && /^[a-z0-9_-]+$/i.test(p.id) && typeof p.list === "function")
+    .map((p) => (seenPlaces.add(p.id), p));
+  const placeOf = (id) => places().find((p) => p.id === id);
+  const seenPlaces = new Set(); // ids of every place this page has lent so far
+  const toBytes = (v) => v instanceof Uint8Array ? v : v instanceof ArrayBuffer ? new Uint8Array(v)
+    : ArrayBuffer.isView(v) ? new Uint8Array(v.buffer, v.byteOffset, v.byteLength) : null;
+  const listing = (v) => ({
+    folders: (Array.isArray(v?.folders) ? v.folders : []).map(String),
+    files: (Array.isArray(v?.files) ? v.files : []).map((f) => ({ name: String(f.name), size: Number(f.size) || 0, modified: f.modified ?? 0 })),
+  });
   const ext = (name) => (name.match(/\.([^./]+)$/)?.[1] ?? "").toLowerCase();
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const size = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
@@ -123,7 +140,9 @@
       document.addEventListener("keydown", onKey, true);
       scrim.addEventListener("pointerdown", (e) => { if (e.target === scrim) close(null); });
 
-      const roots = () => config.user?.roots ?? [];
+      // The cloud's folders (once signed in), then the places the page lends.
+      const cloudRoots = () => config.enabled ? (config.user?.roots ?? []).filter((r) => !placeOf(r.id)) : [];
+      const roots = () => [...cloudRoots(), ...places().map((p) => ({ id: p.id, name: p.name, group: p.group, readOnly: p.readOnly === true, place: p }))];
       const rootOf = () => roots().find((r) => r.id === rootId);
       const openable = (name) => !exts?.length || exts.includes(ext(name));
 
@@ -132,7 +151,8 @@
         if (!rootId) return render();
         busy = true; error = ""; selected = null; confirmOverwrite = null; render();
         try {
-          entries = await getJson("list", { root: rootId, path });
+          const place = rootOf()?.place;
+          entries = place ? listing(await place.list(path)) : await getJson("list", { root: rootId, path });
         } catch (e) {
           if (e.status === 401) { await loadConfig(); }
           else if (path) { path = ""; busy = false; return load(); }
@@ -146,9 +166,17 @@
         busy = true; render();
         try {
           const full = [path, name].filter(Boolean).join("/");
-          const r = await api("file", { root: rootId, path: full });
-          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the server answered ${r.status}`);
-          close({ path: `cloud:${rootId}/${full}`, bytes: new Uint8Array(await r.arrayBuffer()) });
+          const place = rootOf()?.place;
+          let bytes;
+          if (place) {
+            bytes = toBytes(await place.read(full));
+            if (!bytes) throw new Error("no file came back");
+          } else {
+            const r = await api("file", { root: rootId, path: full });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the server answered ${r.status}`);
+            bytes = new Uint8Array(await r.arrayBuffer());
+          }
+          close({ path: `cloud:${rootId}/${full}`, bytes });
         } catch (e) { busy = false; error = `Couldn't open ${name}: ${e.message}`; render(); }
       }
 
@@ -162,13 +190,18 @@
       async function newFolder() {
         const name = prompt("Folder name");
         if (!name?.trim() || /[/\\]/.test(name)) return;
-        try { await getJson("folder", { root: rootId, path: [path, name.trim()].filter(Boolean).join("/") }, { method: "POST" }); path = [path, name.trim()].filter(Boolean).join("/"); load(); }
+        const full = [path, name.trim()].filter(Boolean).join("/");
+        const place = rootOf()?.place;
+        try { await (place ? place.mkdir(full) : getJson("folder", { root: rootId, path: full }, { method: "POST" })); path = [path, name.trim()].filter(Boolean).join("/"); load(); }
         catch (e) { error = e.message; render(); }
       }
 
       function render() {
         const r = rootOf();
         const signedIn = Boolean(config.user);
+        const usable = Boolean(r && (r.place || signedIn));
+        const groups = [...new Set(places().map((p) => p.group || "Other places"))];
+        const button = (x) => `<button data-root="${esc(x.id)}" class="${x.id === rootId ? "on" : ""}">${esc(x.name)}${x.readOnly ? " (read-only)" : ""}</button>`;
         const crumbs = r ? [`<button data-crumb="">${esc(r.name)}</button>`, ...path.split("/").filter(Boolean).map((p, i, a) =>
           `<span>›</span><button data-crumb="${esc(a.slice(0, i + 1).join("/"))}">${esc(p)}</button>`)].join("") : "";
         const match = (n) => n.toLowerCase().includes(filter.toLowerCase());
@@ -179,17 +212,17 @@
           <header><h2>${mode === "open" ? "Open" : "Save as"}</h2><button class="x" aria-label="Close" data-close>×</button></header>
           <div class="body">
             <nav aria-label="Locations">
-              <div class="label">${esc(config.name)}</div>
-              ${signedIn ? roots().map((x) => `<button data-root="${esc(x.id)}" class="${x.id === rootId ? "on" : ""}">${esc(x.name)}${x.readOnly ? " (read-only)" : ""}</button>`).join("")
-                : `<button data-signin>Sign in with ${esc(config.signIn)}</button>`}
+              ${config.enabled ? `<div class="label">${esc(config.name)}</div>
+              ${signedIn ? cloudRoots().map(button).join("") : `<button data-signin>Sign in with ${esc(config.signIn)}</button>`}` : ""}
+              ${groups.map((g) => `<div class="label">${esc(g)}</div>${roots().filter((x) => x.place && (x.group || "Other places") === g).map(button).join("")}`).join("")}
               <div class="label">Other</div>
               <button data-device>This device…</button>
             </nav>
             <div class="main">
-              ${signedIn && r ? `<div class="bar"><div class="crumbs">${crumbs}</div><input type="search" placeholder="Filter" aria-label="Filter" value="${esc(filter)}">
+              ${usable ? `<div class="bar"><div class="crumbs">${crumbs}</div><input type="search" placeholder="Filter" aria-label="Filter" value="${esc(filter)}">
                 ${r.readOnly ? "" : `<button class="b" data-mkdir>New folder</button>`}</div>` : "<div></div>"}
               <div class="list" role="listbox" aria-label="Files">
-                ${!signedIn ? `<div class="center"><p>Sign in to open and save files in ${esc(config.name)}.</p><button class="b primary" data-signin>Sign in with ${esc(config.signIn)}</button></div>`
+                ${!usable && config.enabled && !signedIn ? `<div class="center"><p>Sign in to open and save files in ${esc(config.name)}.</p><button class="b primary" data-signin>Sign in with ${esc(config.signIn)}</button></div>`
                   : !r ? `<div class="empty">No folders are shared with you yet.</div>`
                   : busy ? `<div class="empty">Loading…</div>`
                   : !folders.length && !files.length ? `<div class="empty">${filter ? "Nothing matches." : "This folder is empty."}</div>`
@@ -200,14 +233,14 @@
             </div>
           </div>
           <footer>
-            ${mode === "save" && signedIn && r ? `<input class="name" aria-label="File name" value="${esc(name)}">` : `<span class="grow ${error ? "err" : "who"}">${esc(error || (signedIn ? `Signed in as ${config.user.name}` : ""))}</span>`}
+            ${mode === "save" && usable ? `<input class="name" aria-label="File name" value="${esc(name)}">` : `<span class="grow ${error ? "err" : "who"}">${esc(error || (signedIn && !r?.place ? `Signed in as ${config.user.name}` : ""))}</span>`}
             ${signedIn ? `<button class="link" data-signout>Sign out</button>` : ""}
             ${mode === "save" && error ? `<span class="err">${esc(error)}</span>` : ""}
             ${confirmOverwrite ? `<span class="err">Replace ${esc(confirmOverwrite)}?</span>` : ""}
             <button class="b" data-close>Cancel</button>
             ${mode === "open"
               ? `<button class="b primary" data-open ${selected && openable(selected) && !busy ? "" : "disabled"}>Open</button>`
-              : `<button class="b primary" data-save ${signedIn && r && !r.readOnly && !busy ? "" : "disabled"}>${confirmOverwrite ? "Replace" : "Save"}</button>`}
+              : `<button class="b primary" data-save ${usable && !r.readOnly && !busy ? "" : "disabled"}>${confirmOverwrite ? "Replace" : "Save"}</button>`}
           </footer></div>`;
         const on = (sel, ev, fn) => scrim.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, fn));
         on("[data-close]", "click", () => close(null));
@@ -243,21 +276,31 @@
     // undefined: the app shows its own dialog.
     async chooseOpen(exts) {
       await ready;
-      if (!config.enabled) return "device";
+      if (!config.enabled && !places().length) return "device";
       return dialog("open", { exts: exts ?? null });
     },
     async chooseSave(suggested) {
       await ready;
-      if (!config.enabled) return "device";
+      if (!config.enabled && !places().length) return "device";
       return dialog("save", { suggested });
     },
     async write(cloudPath, bytes) {
       const { root: r, path } = split(cloudPath);
       const name = path.split("/").pop();
-      toast(`Saving ${name} to ${config.name}…`, false, true);
+      const place = placeOf(r);
+      // A place's file while the place is gone (the editor isn't connected now): don't try the cloud.
+      if (!place && (seenPlaces.has(r) || !config.enabled)) {
+        const e = new Error(`${name} isn't saved: its place isn't available now (is the editor connected?).`);
+        toast(e.message, true, true);
+        setTimeout(() => (root.querySelector(".toast").hidden = true), 10000);
+        throw e;
+      }
+      const where = place ? place.name : config.name;
+      toast(`Saving ${name} to ${where}…`, false, true);
       try {
-        await getJson("file", { root: r, path }, { method: "PUT", body: bytes });
-        toast(`Saved ${name} to ${config.name}`);
+        if (place) await place.write(path, bytes);
+        else await getJson("file", { root: r, path }, { method: "PUT", body: bytes });
+        toast(`Saved ${name} to ${where}`);
       } catch (e) {
         toast(e.status === 401 ? `Not saved: sign in to ${config.name} again (File › Save As).` : `Couldn't save ${name}: ${e.message}`, true, true);
         setTimeout(() => (root.querySelector(".toast").hidden = true), 10000);
