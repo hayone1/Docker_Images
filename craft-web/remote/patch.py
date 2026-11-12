@@ -48,8 +48,9 @@ STORAGE = {
         [
             (
                 "apps/vectorcraft-web/src/web.rs",
-                # 0.18 added a stylus argument, so match whatever follows the inbox.
-                re.compile(r"let services = (services\(host\.inbox\.clone\(\), .*\));$", re.M),
+                # 0.18 added a stylus argument, so match whatever follows the inbox; 0.24's
+                # rustfmt puts the call on the next line.
+                re.compile(r"let services =\s*(services\(host\.inbox\.clone\(\), .*\));$", re.M),
                 r"let mut services = \1; crate::storage::install(&mut services, host.inbox.clone(), ctx.clone());",
             ),
             (
