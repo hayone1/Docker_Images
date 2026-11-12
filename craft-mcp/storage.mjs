@@ -11,7 +11,7 @@
 //   AUTH_GROUPS_CLAIM     claim listing the user's groups, when the provider sends one
 //   AUTH_SESSION_HOURS    default 168
 //   APP_ORIGIN            app origin with {app}, e.g. https://{app}.example.org; a proxy that
-//                         serves the apps elsewhere (craft-gateway) names its origin per request
+//                         serves the apps elsewhere (craft-web-gateway) names its origin per request
 //                         in X-Craft-Origin, which is trusted like X-Gateway-Secret
 //   STORAGE_NAME          shown in the apps, default "Cloud"
 //   STORAGE_S3_ENDPOINT, STORAGE_S3_REGION, STORAGE_S3_BUCKET, STORAGE_S3_ACCESS_KEY,

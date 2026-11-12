@@ -312,16 +312,16 @@ jobs:
             hayone/craft-mcp:${{ steps.versions.outputs.tag }}
             hayone/craft-mcp:latest
 
-  # The gateway was called craft-ai-hub; the old image name gets the same pushes, so setups that
-  # still pull hayone/craft-ai-hub keep updating.
-  craft-gateway:
-    name: craft-gateway
+  # The gateway was called craft-ai-hub (and craft-gateway for a day); the first old image name
+  # gets the same pushes, so setups that still pull hayone/craft-ai-hub keep updating.
+  craft-web-gateway:
+    name: craft-web-gateway
     runs-on: ubuntu-latest
     steps:
-      - name: Check out hayone1/craft-gateway
+      - name: Check out hayone1/craft-web-gateway
         uses: actions/checkout@v5
         with:
-          repository: hayone1/craft-gateway
+          repository: hayone1/craft-web-gateway
 
       - name: Tag from source
         id: version
@@ -330,7 +330,7 @@ jobs:
       - name: Check Docker Hub for existing tag
         id: exists
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}'             "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-gateway/tags/${{ steps.version.outputs.tag }}")
+          code=$(curl -s -o /dev/null -w '%{http_code}'             "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-web-gateway/tags/${{ steps.version.outputs.tag }}")
           if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
@@ -360,11 +360,11 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           labels: |
-            org.opencontainers.image.source=https://github.com/hayone1/craft-gateway
+            org.opencontainers.image.source=https://github.com/hayone1/craft-web-gateway
             org.opencontainers.image.revision=${{ steps.version.outputs.tag }}
           tags: |
-            hayone/craft-gateway:${{ steps.version.outputs.tag }}
-            hayone/craft-gateway:latest
+            hayone/craft-web-gateway:${{ steps.version.outputs.tag }}
+            hayone/craft-web-gateway:latest
             hayone/craft-ai-hub:${{ steps.version.outputs.tag }}
             hayone/craft-ai-hub:latest
 
@@ -373,14 +373,22 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKER_PASSWORD }}
-          repository: hayone/craft-gateway
+          repository: hayone/craft-web-gateway
           short-description: Front door for the storytold craft web apps, with an AI assistant built in
           readme-filepath: README.md
 
-      - name: Point the old image name to the new one
+      - name: Point the old image names to the new one
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKER_PASSWORD }}
           repository: hayone/craft-ai-hub
-          short-description: Renamed to hayone/craft-gateway (this name still gets the same images)
+          short-description: Renamed to hayone/craft-web-gateway (this name still gets the same images)
+
+      - name: Point hayone/craft-gateway to the new name
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKER_PASSWORD }}
+          repository: hayone/craft-gateway
+          short-description: Renamed to hayone/craft-web-gateway (no new images here)
