@@ -57,6 +57,14 @@
     return failed && reply?.ok ? { ok: false, error: failed } : reply;
   };
 
+  // VectorCraft's export tool runs the engine's document.export, which has no file system in a
+  // browser ("no file system here"). app.export encodes the same way with the same options and
+  // writes through the page instead (a download, which craft-files.js keeps for the editor).
+  const reroute = (method, params) =>
+    app === "vectorcraft" && method === "engine.execute" && params?.command === "document.export" && typeof params.params?.path === "string"
+      ? ["app.export", params.params]
+      : [method, params];
+
   let ws;
   let timer;
   let delay = 1000;
@@ -78,8 +86,21 @@
     socket.onmessage = async ({ data }) => {
       let msg;
       try { msg = JSON.parse(data); } catch { return; }
-      const request = await ready;
-      const reply = await withFiles(msg.method, msg.params ?? {}, request).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
+      const params = msg.params ?? {};
+      // craft.files: the editor's file transfers (craft-files.js), answered by the page itself.
+      // Anything else goes to the app; craft-files.js keeps the files the request downloads.
+      const files = window.craftFiles;
+      const answer = msg.method === "craft.files"
+        ? async () => {
+          if (!files) return { ok: false, error: "this page can't take files from the editor" };
+          return { ok: true, result: await files.handle(params) };
+        }
+        : async () => {
+          const request = await ready;
+          const run = () => withFiles(...reroute(msg.method, params), request);
+          return files ? files.during(run) : run();
+        };
+      const reply = await answer().catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ ...reply, id: msg.id ?? null }));
     };
   };
