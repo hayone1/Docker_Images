@@ -1,24 +1,12 @@
-// Cloud storage for File › Open and Save: `window.craftStorage`, used by the app (storage.rs).
-// The server side is _storage/ next to the page (the site root, or craft-hub's /<app>/); without it configured the app keeps its own
-// dialogs. Paths look like cloud:<folder id>/<path>.
-//
-// The page can lend more places through window.craftStoragePlaces: the hub's overlay adds an
-// editor's workspace there when craft-vscode frames the page. A place is
-// {id, group, name, list(path) -> {folders, files: [{name, size, modified}]}, read(path) -> bytes,
-// write(path, bytes), mkdir(path)}, and its files get the paths cloud:<place id>/<path>.
+// Storage places for File › Open and Save: `window.craftStorage`, used by the app (storage.rs).
+// Whoever hosts or frames the page lends the places through window.craftStoragePlaces: an editor
+// that frames the page lends its workspace (craft-embed.js), and a page that serves the app can add
+// its own storage. Without places, the app keeps its own dialogs. A place is
+// {id, group, name, readOnly, list(path) -> {folders, files: [{name, size, modified}]},
+// read(path) -> bytes, write(path, bytes), mkdir(path), locate(path)?}, and its files get the
+// paths cloud:<place id>/<path>.
 (() => {
-  const app = document.currentScript.dataset.app;
   const LAST = "craftStorage.last";
-  const api = (action, params = {}, init) => fetch(`_storage/${action}?${new URLSearchParams(params)}`, { credentials: "same-origin", cache: "no-store", ...init });
-  const getJson = async (action, params, init) => {
-    const r = await api(action, params, init);
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw Object.assign(new Error(body.error || `the server answered ${r.status}`), { status: r.status });
-    return body;
-  };
-  let config;
-  const loadConfig = async () => (config = await getJson("config").catch(() => ({ enabled: false })));
-  const ready = loadConfig();
 
   const split = (cloudPath) => {
     const [root, ...rest] = cloudPath.slice("cloud:".length).split("/");
@@ -95,25 +83,6 @@
     if (!sticky) toastTimer = setTimeout(() => (t.hidden = true), bad ? 6000 : 2500);
   };
 
-  const signIn = () => new Promise((resolve) => {
-    const w = window.open(`_storage/login`, "craft-sign-in", "width=520,height=680");
-    const done = async (e) => {
-      if (e.origin !== location.origin || e.data?.type !== "craft-storage-sign-in") return;
-      window.removeEventListener("message", done);
-      clearInterval(poll);
-      await loadConfig();
-      resolve(e.data.ok ? null : e.data.message);
-    };
-    window.addEventListener("message", done);
-    const poll = setInterval(async () => {
-      if (w && !w.closed) return;
-      clearInterval(poll);
-      window.removeEventListener("message", done);
-      await loadConfig();
-      resolve(config.user ? null : "");
-    }, 800);
-  });
-
   // The dialog: mode "open" (resolves {path, bytes}) or "save" (resolves a cloud path).
   function dialog(mode, { exts, suggested }) {
     return new Promise((resolve) => {
@@ -140,9 +109,7 @@
       document.addEventListener("keydown", onKey, true);
       scrim.addEventListener("pointerdown", (e) => { if (e.target === scrim) close(null); });
 
-      // The cloud's folders (once signed in), then the places the page lends.
-      const cloudRoots = () => config.enabled ? (config.user?.roots ?? []).filter((r) => !placeOf(r.id)) : [];
-      const roots = () => [...cloudRoots(), ...places().map((p) => ({ id: p.id, name: p.name, group: p.group, readOnly: p.readOnly === true, place: p }))];
+      const roots = () => places().map((p) => ({ id: p.id, name: p.name, group: p.group, readOnly: p.readOnly === true, place: p }));
       const rootOf = () => roots().find((r) => r.id === rootId);
       const openable = (name) => !exts?.length || exts.includes(ext(name));
 
@@ -155,12 +122,10 @@
         busy = true; error = ""; selected = null; confirmOverwrite = null; render();
         let found;
         try {
-          const place = rootOf()?.place;
-          found = place ? listing(await place.list(path)) : await getJson("list", { root: rootId, path });
+          found = listing(await rootOf().place.list(path));
         } catch (e) {
           if (mine !== loads) return;
-          if (e.status === 401) { await loadConfig(); }
-          else if (path) { path = ""; busy = false; return load(); }
+          if (path) { path = ""; busy = false; return load(); }
           error = e.message; found = { folders: [], files: [] };
         }
         if (mine !== loads) return;
@@ -173,16 +138,8 @@
         busy = true; render();
         try {
           const full = [path, name].filter(Boolean).join("/");
-          const place = rootOf()?.place;
-          let bytes;
-          if (place) {
-            bytes = toBytes(await place.read(full));
-            if (!bytes) throw new Error("no file came back");
-          } else {
-            const r = await api("file", { root: rootId, path: full });
-            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `the server answered ${r.status}`);
-            bytes = new Uint8Array(await r.arrayBuffer());
-          }
+          const bytes = toBytes(await rootOf().place.read(full));
+          if (!bytes) throw new Error("no file came back");
           close({ path: `cloud:${rootId}/${full}`, bytes });
         } catch (e) { busy = false; error = `Couldn't open ${name}: ${e.message}`; render(); }
       }
@@ -198,15 +155,13 @@
         const name = prompt("Folder name");
         if (!name?.trim() || /[/\\]/.test(name)) return;
         const full = [path, name.trim()].filter(Boolean).join("/");
-        const place = rootOf()?.place;
-        try { await (place ? place.mkdir(full) : getJson("folder", { root: rootId, path: full }, { method: "POST" })); path = [path, name.trim()].filter(Boolean).join("/"); load(); }
+        try { await rootOf().place.mkdir(full); path = [path, name.trim()].filter(Boolean).join("/"); load(); }
         catch (e) { error = e.message; render(); }
       }
 
       function render() {
         const r = rootOf();
-        const signedIn = Boolean(config.user);
-        const usable = Boolean(r && (r.place || signedIn));
+        const usable = Boolean(r);
         const groups = [...new Set(places().map((p) => p.group || "Other places"))];
         const button = (x) => `<button data-root="${esc(x.id)}" class="${x.id === rootId ? "on" : ""}">${esc(x.name)}${x.readOnly ? " (read-only)" : ""}</button>`;
         const crumbs = r ? [`<button data-crumb="">${esc(r.name)}</button>`, ...path.split("/").filter(Boolean).map((p, i, a) =>
@@ -219,8 +174,6 @@
           <header><h2>${mode === "open" ? "Open" : "Save as"}</h2><button class="x" aria-label="Close" data-close>×</button></header>
           <div class="body">
             <nav aria-label="Locations">
-              ${config.enabled ? `<div class="label">${esc(config.name)}</div>
-              ${signedIn ? cloudRoots().map(button).join("") : `<button data-signin>Sign in with ${esc(config.signIn)}</button>`}` : ""}
               ${groups.map((g) => `<div class="label">${esc(g)}</div>${roots().filter((x) => x.place && (x.group || "Other places") === g).map(button).join("")}`).join("")}
               <div class="label">Other</div>
               <button data-device>This device…</button>
@@ -229,8 +182,7 @@
               ${usable ? `<div class="bar"><div class="crumbs">${crumbs}</div><input type="search" placeholder="Filter" aria-label="Filter" value="${esc(filter)}">
                 ${r.readOnly ? "" : `<button class="b" data-mkdir>New folder</button>`}</div>` : "<div></div>"}
               <div class="list" role="listbox" aria-label="Files">
-                ${!usable && config.enabled && !signedIn ? `<div class="center"><p>Sign in to open and save files in ${esc(config.name)}.</p><button class="b primary" data-signin>Sign in with ${esc(config.signIn)}</button></div>`
-                  : !r ? `<div class="empty">No folders are shared with you yet.</div>`
+                ${!r ? `<div class="empty">No places are available.</div>`
                   : busy ? `<div class="empty">Loading…</div>`
                   : !folders.length && !files.length ? `<div class="empty">${filter ? "Nothing matches." : "This folder is empty."}</div>`
                   : folders.map((f) => `<div class="item" role="option" data-folder="${esc(f)}"><span>📁</span><span class="n">${esc(f)}</span><span class="m"></span><span class="m d"></span></div>`).join("") +
@@ -240,8 +192,7 @@
             </div>
           </div>
           <footer>
-            ${mode === "save" && usable ? `<input class="name" aria-label="File name" value="${esc(name)}">` : `<span class="grow ${error ? "err" : "who"}">${esc(error || (signedIn && !r?.place ? `Signed in as ${config.user.name}` : ""))}</span>`}
-            ${signedIn ? `<button class="link" data-signout>Sign out</button>` : ""}
+            ${mode === "save" && usable ? `<input class="name" aria-label="File name" value="${esc(name)}">` : `<span class="grow ${error ? "err" : "who"}">${esc(error)}</span>`}
             ${mode === "save" && error ? `<span class="err">${esc(error)}</span>` : ""}
             ${confirmOverwrite ? `<span class="err">Replace ${esc(confirmOverwrite)}?</span>` : ""}
             <button class="b" data-close>Cancel</button>
@@ -252,8 +203,6 @@
         const on = (sel, ev, fn) => scrim.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, fn));
         on("[data-close]", "click", () => close(null));
         on("[data-device]", "click", () => close("device"));
-        on("[data-signin]", "click", async () => { error = (await signIn()) ?? ""; load(); });
-        on("[data-signout]", "click", async () => { await api("logout", {}, { method: "POST" }); await loadConfig(); rootId = undefined; render(); });
         on("[data-root]", "click", (e) => { rootId = e.currentTarget.dataset.root; path = ""; load(); });
         on("[data-crumb]", "click", (e) => { path = e.currentTarget.dataset.crumb; load(); });
         on("[data-folder]", "dblclick", (e) => { path = [path, e.currentTarget.dataset.folder].filter(Boolean).join("/"); load(); });
@@ -282,13 +231,11 @@
   window.craftStorage = {
     // undefined: the app shows its own dialog.
     async chooseOpen(exts) {
-      await ready;
-      if (!config.enabled && !places().length) return "device";
+      if (!places().length) return "device";
       return dialog("open", { exts: exts ?? null });
     },
     async chooseSave(suggested) {
-      await ready;
-      if (!config.enabled && !places().length) return "device";
+      if (!places().length) return "device";
       // The AI assistant saved (craft-files.js): no dialog it can't answer. The download stays in
       // the page, for the editor to copy into its workspace.
       if (window.craftFiles?.quiet()) return "device";
@@ -298,21 +245,19 @@
       const { root: r, path } = split(cloudPath);
       const name = path.split("/").pop();
       const place = placeOf(r);
-      // A place's file while the place is gone (the editor isn't connected now): don't try the cloud.
-      if (!place && (seenPlaces.has(r) || !config.enabled)) {
-        const e = new Error(`${name} isn't saved: its place isn't available now (is the editor connected?).`);
+      // A place's file while the place is gone (the editor isn't connected now).
+      if (!place) {
+        const e = new Error(`${name} isn't saved: its place isn't available now${seenPlaces.has(r) ? " (is the editor connected?)" : ""}.`);
         toast(e.message, true, true);
         setTimeout(() => (root.querySelector(".toast").hidden = true), 10000);
         throw e;
       }
-      const where = place ? place.name : config.name;
-      toast(`Saving ${name} to ${where}…`, false, true);
+      toast(`Saving ${name} to ${place.name}…`, false, true);
       try {
-        if (place) await place.write(path, bytes);
-        else await getJson("file", { root: r, path }, { method: "PUT", body: bytes });
-        toast(`Saved ${name} to ${where}`);
+        await place.write(path, bytes);
+        toast(`Saved ${name} to ${place.name}`);
       } catch (e) {
-        toast(e.status === 401 ? `Not saved: sign in to ${config.name} again (File › Save As).` : `Couldn't save ${name}: ${e.message}`, true, true);
+        toast(`Couldn't save ${name}: ${e.message}`, true, true);
         setTimeout(() => (root.querySelector(".toast").hidden = true), 10000);
         // The app keeps the document unsaved only when the write rejects.
         throw e;
@@ -321,11 +266,10 @@
 
     // ---- files for the AI assistant (craft-remote.js and the app's storage.rs) ----------------
     // The assistant names files by path: a path in the editor's workspace as the editor's machine
-    // sees it (/home/coder/project/cat.png), or a cloud: path. craft-remote.js calls
+    // sees it (/home/coder/project/cat.png), or a cloud:<place id>/ path. craft-remote.js calls
     // automationPrepare before a request that names a file; the app then calls automationRead and
     // automationWrite, which must answer at once; craft-remote.js awaits automationSettle after.
     async automationPrepare(path, { read = false } = {}) {
-      await ready;
       let target;
       try {
         target = await whereIs(path);
@@ -339,13 +283,8 @@
       if (read) {
         const { root: r, path: inside } = split(target);
         const place = placeOf(r);
-        let bytes;
-        if (place) bytes = toBytes(await place.read(inside));
-        else {
-          const res = await api("file", { root: r, path: inside });
-          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `the server answered ${res.status}`);
-          bytes = new Uint8Array(await res.arrayBuffer());
-        }
+        if (!place) throw new Error(`${path} isn't reachable: its place isn't available now`);
+        const bytes = toBytes(await place.read(inside));
         if (!bytes) throw new Error(`no file came back for ${path}`);
         readCache.set(path, { name: inside.split("/").pop() || path, bytes });
       }
@@ -361,7 +300,7 @@
         return null;
       }
       const target = aliases.get(path) ?? (path.startsWith("cloud:") ? path : null);
-      if (!target) return `${path} can't be written here: name a file in the editor's workspace, or a cloud: path.`;
+      if (!target) return `${path} can't be written here: name a file in the editor's workspace, or a cloud:<place id>/ path.`;
       pending.push(this.write(target, bytes).then(() => null, (e) => `Couldn't save ${path}: ${e.message}`));
       return null;
     },
@@ -385,8 +324,8 @@
     else {
       const ws = places().find((p) => typeof p.locate === "function");
       if (!ws) {
-        throw new Error(`${path} isn't reachable: this tab can open and save files only in the editor's workspace ` +
-          "(open the app from the Craft Apps view in VS Code) or in the cloud (a cloud: path).");
+        throw new Error(`${path} isn't reachable: this tab can open and save files only in the places its page lends, ` +
+          "such as the workspace of an editor that frames the page, or by a cloud:<place id>/<path> path.");
       }
       target = `cloud:${ws.id}/${await ws.locate(path)}`;
     }

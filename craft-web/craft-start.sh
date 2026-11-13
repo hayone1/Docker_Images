@@ -1,8 +1,8 @@
 #!/bin/sh
 # Starts nginx. First writes /tmp/craft-embed.json (served at /_embed/config.json) from:
-#   EMBED_ORIGINS  origins of editors that may frame the app and drive it (craft-vscode in
-#                  code-server), comma separated; a * stands for host labels:
-#                  https://*.code.example.com. VS Code's own webviews are always allowed.
+#   EMBED_ORIGINS  origins of editors that may frame the app and drive it, comma separated; a *
+#                  stands for host labels: https://*.code.example.com, vscode-webview://*.
+#                  Without it, no editor may.
 #   EMBED_FILES    "false": those editors may not lend their workspace files to the app.
 # /tmp is the only place the container writes, so the file system can stay read-only.
 set -eu

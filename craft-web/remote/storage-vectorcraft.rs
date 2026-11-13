@@ -1,6 +1,6 @@
-//! Cloud storage through `window.craftStorage` (craft-storage.js): File › Open offers the cloud
-//! next to this device, a document opened from the cloud keeps its `cloud:` path so Save writes
-//! it back, and other downloads (Save As, exports) ask where to go.
+//! Page storage through `window.craftStorage` (craft-storage.js): File › Open offers the places
+//! the page lends next to this device, a document opened from a place keeps its `cloud:` path so
+//! Save writes it back, and other downloads (Save As, exports) ask where to go.
 
 use std::cell::RefCell;
 use std::rc::Rc;

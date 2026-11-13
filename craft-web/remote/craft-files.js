@@ -1,5 +1,5 @@
-// Files between the app in this tab and an AI assistant's editor (craft-vscode). The editor calls
-// the craft-mcp relay's /<key>/<app>/files endpoint, the relay sends {method: "craft.files",
+// Files between the app in this tab and an AI agent's editor. The editor calls the craft-mcp
+// relay's /<key>/<app>/files endpoint, the relay sends {method: "craft.files",
 // params} over this tab's connection, and craft-remote.js hands the params to handle() here:
 //
 //   {op: "put", upload, name, data, done}  a file from the editor, in base64 parts. On the last
