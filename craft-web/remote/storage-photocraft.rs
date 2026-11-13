@@ -1,11 +1,11 @@
-//! Cloud storage through `window.craftStorage` (craft-storage.js): Open and Save offer the cloud
-//! next to this device, and a document opened from the cloud keeps its `cloud:` path, so Save
-//! writes it back.
+//! Page storage through `window.craftStorage` (craft-storage.js): Open and Save offer the places
+//! the page lends next to this device, and a document opened from a place keeps its `cloud:` path,
+//! so Save writes it back.
 //!
 //! It also gives the control channel (an AI assistant through the craft-mcp relay) file access.
 //! The desktop app grants that with --automation-read-root and --automation-write-root; the
 //! browser has no file system, so `app.open`, `app.save` and `ui.screenshot` with a path go to
-//! craft-storage instead: the editor's workspace when craft-vscode frames the page, or the cloud.
+//! craft-storage instead: the workspace of an editor that frames the page, or another place.
 //! craft-storage works with promises and these services answer at once, so craft-remote.js reads
 //! the file before `app.open` arrives, and waits for the writes after each request.
 

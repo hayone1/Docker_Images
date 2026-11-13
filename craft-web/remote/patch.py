@@ -1,7 +1,7 @@
 """Patch a craft web app for the remote images: python3 patch.py <app> <checkout>.
 
-Adds `window.craftRemote` (remote.rs) where the app has no page API of its own, and cloud
-storage (storage.rs) where supported. filmcraft, effectcraft and vectorcraft (0.16+) already
+Adds `window.craftRemote` (remote.rs) where the app has no page API of its own, and page
+storage (storage.rs, `window.craftStorage`) where supported. filmcraft, effectcraft and vectorcraft (0.16+) already
 publish `window.<app>.request`.
 """
 import pathlib

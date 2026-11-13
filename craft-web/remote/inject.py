@@ -14,8 +14,9 @@ if html.count("</head>") != 1:
 index.write_text(html.replace("</head>", f'<script data-app="{app}">\n{script}</script>\n</head>'), encoding="utf-8")
 for stale in ("index.html.gz", "index.html.br"):
     (site / stale).unlink(missing_ok=True)
-# effectcraft's service worker answers every same-origin GET (navigations with the app page); let
-# the assistant, storage, editor and craft-web-gateway paths (at the root or under /<app>/) through.
+# effectcraft's service worker answers every same-origin GET (navigations with the app page) and
+# caches what it fetches. Folders whose name starts with _ (/_embed/, at the root or under a
+# proxy's /<app>/) belong to whatever serves the page, not to the app: let them through, live.
 # It serves its precached files (index.html too) until its VERSION changes, so the version also
 # names these scripts: a new build of them replaces the cached page.
 sw = site / "sw.js"
@@ -24,7 +25,7 @@ if sw.exists():
     text = sw.read_text(encoding="utf-8")
     if text.count(guard) != 1:
         sys.exit(f"inject.py: {sw} no longer matches")
-    skip = r"  if (/\/_(storage|assistant|embed|hub)\//.test(url.pathname)) return;" + "\n"
+    skip = r"  if (/\/_[\w-]+\//.test(url.pathname)) return;" + "\n"
     text = text.replace(guard, guard + skip)
     tag = hashlib.sha256(script.encode("utf-8")).hexdigest()[:8]
     text, n = re.subn(r'^const VERSION = "([^"\\]*)";$', lambda m: f'const VERSION = "{m.group(1)}-{tag}";', text, count=1, flags=re.M)

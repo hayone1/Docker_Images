@@ -1,13 +1,13 @@
-// An editor that frames this page: craft-vscode shows the app in a VS Code (or code-server) panel
-// and lets the coding agent in the workspace drive it. The page and the editor talk with
-// postMessage: only this page and its direct parent, and only when the parent's origin is allowed.
-// VS Code's own webviews (vscode-webview://…) are always allowed; craft-start.sh writes the
-// container's EMBED_ORIGINS (code-server's origins, say) to _embed/config.json.
+// An editor that frames this page, such as an editor extension that shows the app in a panel and
+// lets a coding agent in the editor drive it. The page and the editor talk with postMessage: only
+// this page and its direct parent, and only when the parent's origin is allowed. The allowed
+// origins are the container's EMBED_ORIGINS, which craft-start.sh writes to _embed/config.json;
+// nothing is allowed without them.
 //
 //   editor -> page  {type: "craft-embed:hello", files, session}
 //       files: {label, name, readOnly} lends the editor's workspace (below), or null.
-//       session: {tab, mcp, expires}, a relay connection the editor made itself (craft-mcp's
-//       MINT_TOKENS). Without one, the page makes its own through its server (_assistant/session).
+//       session: {tab, mcp, expires}, a relay connection for the agent (craft-remote.js), or null.
+//       Without one, the editor still lends its files, but no agent drives the app.
 //   page -> editor  {type: "craft-embed:session", app, title, state, mcp, expires, files, error}
 //       the answer, and again whenever the relay connection changes. The editor gives the MCP URL
 //       to its agent.
@@ -17,21 +17,18 @@
 //   editor -> page  {type: "craft-embed:open-files", files: [{name, type, bytes}]}  files to open.
 (() => {
   if (window.parent === window) return;
-  // An older craft-web-gateway with EMBED_ORIGINS answers the editor itself (its overlay).
-  if (window.craftHub?.embed?.length) return;
   const app = document.currentScript.dataset.app;
   const A = window.craftAssistant;
   if (!A) return;
   const parent = window.parent;
 
-  const ALWAYS = ["vscode-webview://*"];
   // https://*.code.example.com: a * stands for one or more host labels.
   const pattern = (p) => new RegExp(`^${String(p).replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[a-z0-9.-]+")}$`, "i");
   const config = fetch("_embed/config.json", { cache: "no-store", credentials: "same-origin" })
     .then((r) => (r.ok ? r.json() : {}))
     .catch(() => ({}))
     .then((c) => ({
-      allowed: [...ALWAYS, ...(Array.isArray(c?.origins) ? c.origins : [])].map(pattern),
+      allowed: (Array.isArray(c?.origins) ? c.origins : []).map(pattern),
       files: c?.files !== false,
     }));
 
@@ -45,8 +42,6 @@
     const s = A.session;
     const about = { app, title: A.title, state: A.state, mcp: s?.mcp ?? null, expires: s?.expires ?? null, files: filesOn, ...(error ? { error } : {}) };
     parent.postMessage({ type: "craft-embed:session", ...about }, origin);
-    // craft-vscode before 0.5 listens for the name that craft-web-gateway's overlay used.
-    parent.postMessage({ type: "craft-hub:session", ...about }, origin);
   };
   A.onChange(() => {
     if (A.state === "on") error = "";
@@ -57,7 +52,6 @@
     error = "";
     try {
       if (session) A.use(session);
-      else if (!A.session) await A.connect(168);
       else if (A.state === "replaced") A.reconnect();
     } catch (e) {
       error = `${A.title} couldn't connect to the relay: ${e?.message ?? e}`;
@@ -78,14 +72,11 @@
       parent.postMessage({ type: "craft-embed:refused", app, origin: e.origin }, e.origin);
       return;
     }
-    if (origin !== e.origin) {
-      origin = e.origin;
-      A.embedded(); // the editor shows the connection, not the page's own panel
-    }
+    origin = e.origin;
     filesOn = files;
     lend(files ? e.data.files : null);
     const session = e.data.session && typeof e.data.session === "object" ? e.data.session : null;
-    const needed = session ? A.session?.tab !== session.tab : A.state !== "on";
+    const needed = session ? A.session?.tab !== session.tab : A.state === "replaced";
     if (needed && !joining) joining = join(session).finally(() => { joining = null; });
     tell();
   });
@@ -93,7 +84,7 @@
   // ---- the editor's workspace ------------------------------------------------------------------
   // A hello with `files` lends the editor's workspace:
   //  - a place in the app's File › Open and Save dialogs. craft-storage.js lists
-  //    window.craftStoragePlaces next to its cloud folders; paths are cloud:workspace/<path>.
+  //    window.craftStoragePlaces; paths are cloud:workspace/<path>.
   //  - files the AI assistant opens and saves by path (craft-storage.js asks the place to locate
   //    the path).
   //  - files dragged from the editor's explorer onto the app. The drag carries only file URIs; the

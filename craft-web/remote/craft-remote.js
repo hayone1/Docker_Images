@@ -1,14 +1,14 @@
-// AI assistant: connects this tab to the craft-mcp relay so an MCP client (Claude, …) can drive it.
-// The connection is created from the panel (POST _assistant/session, relative to the page, so it
-// works at a site root or under a proxy's /<app>/), opened once with ?relay=<wss url>, or handed
-// over by an editor that frames the page (craft-embed.js).
-//
-// window.craftAssistant exposes the connection to craft-embed.js and to craft-web-gateway's
-// overlay, which then shows its own panel (chat and connect) instead of this one.
+// Remote control: connects this tab to a craft-mcp relay, so an MCP client (an AI agent, a script)
+// can drive the app in it. The page has no UI for this. A connection ({tab, mcp, expires}) comes
+// from whoever hosts or frames the page:
+//  - an editor that frames the page hands one over (craft-embed.js);
+//  - a page that serves the app (a proxy, say) calls window.craftAssistant.use();
+//  - a link opens the page once with ?relay=<the tab's wss URL>.
+// window.craftAssistant exposes the connection and its state.
 (() => {
   const app = document.currentScript.dataset.app;
   const title = { photocraft: "PhotoCraft", vectorcraft: "VectorCraft", lightcraft: "LightCraft", filmcraft: "FilmCraft", effectcraft: "EffectCraft" }[app] ?? app;
-  // One origin can serve several apps (craft-hub), so the key names the app.
+  // One origin can serve several apps, so the key names the app.
   const STORE = `craftAssistant:${app}`;
   const load = () => {
     try {
@@ -70,6 +70,12 @@
   let timer;
   let delay = 1000;
   let state = "off";
+  const listeners = new Set();
+  function setState(s) {
+    state = session && session.expires < Date.now() ? "expired" : s;
+    for (const f of [...listeners]) f(state);
+  }
+
   const connect = () => {
     clearTimeout(timer);
     ws?.close();
@@ -121,151 +127,24 @@
     }
   });
 
-  const host = document.createElement("div");
-  const root = host.attachShadow({ mode: "open" });
-  root.innerHTML = `
-    <style>
-      :host { all: initial; }
-      * { box-sizing: border-box; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-      .fab { position: fixed; right: 12px; bottom: 12px; z-index: 2147483000; display: flex; align-items: center; gap: 6px;
-        padding: 6px 10px; border-radius: 999px; border: 1px solid #3a3a3a; background: #232323ee; color: #e3e3e3; cursor: pointer;
-        box-shadow: 0 2px 10px #0006; }
-      .fab:hover { background: #2d2d2d; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; background: #777; }
-      .on .dot { background: #3c3; } .connecting .dot { background: #e0a000; } .replaced .dot, .expired .dot { background: #c33; }
-      .panel { position: fixed; right: 12px; bottom: 52px; z-index: 2147483000; width: min(340px, calc(100vw - 24px)); padding: 14px;
-        border-radius: 10px; border: 1px solid #3a3a3a; background: #232323; color: #e3e3e3; box-shadow: 0 8px 30px #0008; }
-      .panel[hidden] { display: none; }
-      h2 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
-      .muted { color: #9a9a9a; font-size: 12px; }
-      .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
-      button, select { border: 1px solid #3a3a3a; border-radius: 6px; background: #2c2c2c; color: inherit; padding: 6px 10px; cursor: pointer; }
-      button:hover:not(:disabled) { background: #353535; }
-      button.primary { background: #2d8ceb; border-color: #2d8ceb; color: #fff; }
-      button.primary:hover { background: #4aa0f5; }
-      button:disabled { opacity: .5; cursor: default; }
-      .clients { display: grid; gap: 6px; margin-top: 12px; }
-      .client { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid #333; border-radius: 8px; }
-      .client.off { opacity: .5; }
-      input { flex: 1; min-width: 0; border: 1px solid #3a3a3a; border-radius: 6px; background: #1b1b1b; color: #cfcfcf; padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 11px; }
-      .err { color: #f07070; margin-top: 8px; }
-      .links { display: flex; justify-content: space-between; margin-top: 12px; }
-      .link { background: none; border: none; padding: 0; color: #9a9a9a; text-decoration: underline; }
-    </style>
-    <button class="fab" part="fab" aria-expanded="false" aria-controls="panel"><span class="dot"></span><span>AI assistant</span></button>
-    <div class="panel" id="panel" role="dialog" aria-label="AI assistant" hidden></div>`;
-  const fab = root.querySelector(".fab");
-  const panel = root.querySelector(".panel");
-  fab.onclick = () => {
-    panel.hidden = !panel.hidden;
-    fab.setAttribute("aria-expanded", String(!panel.hidden));
-    render();
-  };
-  // craft-web-gateway's overlay draws the assistant itself, and an editor that frames the page
-  // shows the connection in its own window (embedded below).
-  let embedded = false;
-  if (!window.craftHub) document.addEventListener("DOMContentLoaded", () => embedded || document.body.append(host));
-
-  const STATUS = { off: "Not connected", connecting: "Connecting…", on: "Connected", replaced: "In use in another tab", expired: "Connection expired" };
-  const listeners = new Set();
-  function setState(s) {
-    state = session && session.expires < Date.now() ? "expired" : s;
-    for (const f of [...listeners]) f(state);
-    fab.className = `fab ${state}`;
-    fab.title = `AI assistant: ${STATUS[state]}`;
-    if (!panel.hidden) render();
-  }
-
-  const until = (t) => {
-    const h = Math.round((t - Date.now()) / 3600000);
-    return h >= 48 ? `${Math.round(h / 24)} days` : h >= 1 ? `${h} hours` : "less than an hour";
-  };
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-
-  let error = "";
-  async function openSession(hours) {
-    const r = await fetch(`_assistant/session?app=${app}&hours=${hours}`, { method: "POST", credentials: "same-origin" });
-    if (!r.ok) throw new Error(`the server answered ${r.status}`);
-    session = await r.json();
-    save(session);
-    connect();
-    return session;
-  }
-  async function create(hours) {
-    error = "";
-    try {
-      await openSession(hours);
-    } catch (e) {
-      error = `Couldn't create a connection: ${e.message}`;
-    }
-    render();
-  }
-
-  function render() {
-    if (panel.hidden) return;
-    if (!session || state === "expired") {
-      panel.innerHTML = `
-        <h2>AI assistant</h2>
-        <div class="muted">Let an AI assistant work in this ${esc(title)} tab. The work runs here, on this device.</div>
-        <div class="row">
-          <select aria-label="Connection lasts"><option value="24">For 1 day</option><option value="168" selected>For 7 days</option><option value="720">For 30 days</option></select>
-          <button class="primary">${state === "expired" ? "Reconnect" : "Connect"}</button>
-        </div>
-        ${error ? `<div class="err">${esc(error)}</div>` : ""}`;
-      panel.querySelector(".primary").onclick = () => create(panel.querySelector("select").value);
-      return;
-    }
-    // One name per tab, so Claude Code can drive several tabs (and apps) at once.
-    const cmd = `claude mcp add --transport http ${app}-${session.mcp.split("/").at(-3).split(".")[1].slice(0, 6).toLowerCase()} ${session.mcp}`;
-    const claude = `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=${encodeURIComponent(title)}&connectorUrl=${encodeURIComponent(session.mcp)}`;
-    panel.innerHTML = `
-      <h2>AI assistant</h2>
-      <div class="muted">${STATUS[state]} · expires in ${until(session.expires)}. Keep this tab open while the assistant works.</div>
-      <div class="clients">
-        <div class="client"><span>Claude</span><button class="primary" data-open="${esc(claude)}">Add to Claude</button></div>
-        <div class="client"><span>Claude Code</span><button data-copy-cmd="${esc(cmd)}">Copy command</button></div>
-        <div class="client off" aria-disabled="true"><span>ChatGPT</span><button disabled>Coming soon</button></div>
-        <div class="client off" aria-disabled="true"><span>Gemini</span><button disabled>Coming soon</button></div>
-      </div>
-      <div class="muted" style="margin-top:12px">Server URL, for any MCP client. Anyone with it can use this tab, so share it with no one.</div>
-      <div class="row"><input readonly value="${esc(session.mcp)}" aria-label="MCP server URL"><button data-copy>Copy</button></div>
-      <div class="links"><button class="link" data-new>New URL</button><button class="link" data-off>Disconnect</button></div>`;
-    panel.querySelector("[data-open]").onclick = (e) => window.open(e.currentTarget.dataset.open, "_blank", "noopener");
-    panel.querySelector("[data-copy-cmd]").onclick = async (e) => {
-      try { await navigator.clipboard.writeText(e.currentTarget.dataset.copyCmd); e.currentTarget.textContent = "Copied"; } catch { e.currentTarget.textContent = "Copy failed"; }
-    };
-    panel.querySelector("[data-copy]").onclick = async (e) => {
-      const input = panel.querySelector("input");
-      try { await navigator.clipboard.writeText(input.value); } catch { input.select(); document.execCommand("copy"); }
-      e.currentTarget.textContent = "Copied";
-    };
-    panel.querySelector("[data-new]").onclick = () => { disconnect(); render(); };
-    panel.querySelector("[data-off]").onclick = () => { disconnect(); panel.hidden = true; fab.setAttribute("aria-expanded", "false"); };
-  }
-
   window.craftAssistant = {
     app,
     title,
     get state() { return state; },
     // The live connection ({ tab, mcp, expires }), or null.
     get session() { return session && session.expires >= Date.now() ? session : null; },
-    connect: (hours = 168) => openSession(hours),
-    // A connection that the editor framing the page made for it (craft-embed.js). It isn't kept
-    // for the next visit: each editor window makes its own.
-    use(s) {
+    // Use a connection made elsewhere. keep: true also keeps it for the next visit of this page;
+    // an editor that frames the page doesn't keep it, since each editor window makes its own.
+    use(s, { keep = false } = {}) {
       const valid = s && typeof s.tab === "string" && /^wss?:\/\/.+\/tab\/[a-z0-9-]+$/.test(s.tab) && s.tab.endsWith(`/tab/${app}`)
         && typeof s.mcp === "string" && /^https?:\/\/.+\/mcp$/.test(s.mcp) && Number(s.expires) > Date.now();
-      if (!valid) throw new Error("the editor's relay connection isn't valid");
+      if (!valid) throw new Error("the relay connection isn't valid");
+      const next = { tab: s.tab, mcp: s.mcp, expires: Number(s.expires) };
+      if (keep) save(next);
       if (session?.tab === s.tab && ws && ws.readyState <= WebSocket.OPEN) return;
-      session = { tab: s.tab, mcp: s.mcp, expires: Number(s.expires) };
+      session = next;
       delay = 1000;
       connect();
-    },
-    // The page is in an editor's panel: no panel of its own.
-    embedded() {
-      embedded = true;
-      panel.hidden = true;
-      host.remove();
     },
     // Reconnect a tab that another tab took over.
     reconnect: () => { delay = 1000; connect(); },
@@ -273,7 +152,5 @@
     onChange: (f) => { listeners.add(f); return () => listeners.delete(f); },
   };
 
-  // egui handles keys and pointers on the whole page; keep them inside the panel.
-  for (const type of ["keydown", "keyup", "pointerdown", "wheel"]) host.addEventListener(type, (e) => e.stopPropagation());
   connect();
 })();
