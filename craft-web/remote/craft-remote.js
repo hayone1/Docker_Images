@@ -1,9 +1,10 @@
 // AI assistant: connects this tab to the craft-mcp relay so an MCP client (Claude, …) can drive it.
 // The connection is created from the panel (POST _assistant/session, relative to the page, so it
-// works at a site root or under craft-hub's /<app>/) or, as before, opened once with ?relay=<wss url>.
+// works at a site root or under a proxy's /<app>/), opened once with ?relay=<wss url>, or handed
+// over by an editor that frames the page (craft-embed.js).
 //
-// window.craftAssistant exposes the connection to craft-hub's overlay, which then shows its own
-// panel (chat and connect) instead of this one.
+// window.craftAssistant exposes the connection to craft-embed.js and to craft-web-gateway's
+// overlay, which then shows its own panel (chat and connect) instead of this one.
 (() => {
   const app = document.currentScript.dataset.app;
   const title = { photocraft: "PhotoCraft", vectorcraft: "VectorCraft", lightcraft: "LightCraft", filmcraft: "FilmCraft", effectcraft: "EffectCraft" }[app] ?? app;
@@ -160,8 +161,10 @@
     fab.setAttribute("aria-expanded", String(!panel.hidden));
     render();
   };
-  // craft-hub's overlay draws the assistant itself.
-  if (!window.craftHub) document.addEventListener("DOMContentLoaded", () => document.body.append(host));
+  // craft-web-gateway's overlay draws the assistant itself, and an editor that frames the page
+  // shows the connection in its own window (embedded below).
+  let embedded = false;
+  if (!window.craftHub) document.addEventListener("DOMContentLoaded", () => embedded || document.body.append(host));
 
   const STATUS = { off: "Not connected", connecting: "Connecting…", on: "Connected", replaced: "In use in another tab", expired: "Connection expired" };
   const listeners = new Set();
@@ -247,6 +250,23 @@
     // The live connection ({ tab, mcp, expires }), or null.
     get session() { return session && session.expires >= Date.now() ? session : null; },
     connect: (hours = 168) => openSession(hours),
+    // A connection that the editor framing the page made for it (craft-embed.js). It isn't kept
+    // for the next visit: each editor window makes its own.
+    use(s) {
+      const valid = s && typeof s.tab === "string" && /^wss?:\/\/.+\/tab\/[a-z0-9-]+$/.test(s.tab) && s.tab.endsWith(`/tab/${app}`)
+        && typeof s.mcp === "string" && /^https?:\/\/.+\/mcp$/.test(s.mcp) && Number(s.expires) > Date.now();
+      if (!valid) throw new Error("the editor's relay connection isn't valid");
+      if (session?.tab === s.tab && ws && ws.readyState <= WebSocket.OPEN) return;
+      session = { tab: s.tab, mcp: s.mcp, expires: Number(s.expires) };
+      delay = 1000;
+      connect();
+    },
+    // The page is in an editor's panel: no panel of its own.
+    embedded() {
+      embedded = true;
+      panel.hidden = true;
+      host.remove();
+    },
     // Reconnect a tab that another tab took over.
     reconnect: () => { delay = 1000; connect(); },
     disconnect,

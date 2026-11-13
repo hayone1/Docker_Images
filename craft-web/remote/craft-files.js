@@ -47,8 +47,8 @@
     while (kept.length > KEEP_FILES || (kept.length > 1 && total > KEEP_BYTES)) total -= kept.shift().blob.size;
   }
 
-  // The editor lends its workspace (craft-web-gateway's overlay adds the place): downloads the
-  // assistant causes belong in the workspace, not in the browser's downloads folder.
+  // The editor lends its workspace (craft-embed.js adds the place): downloads the assistant
+  // causes belong in the workspace, not in the browser's downloads folder.
   let busy = 0;
   let until = 0;
   const framed = () => Array.isArray(window.craftStoragePlaces) && window.craftStoragePlaces.some((p) => p?.id === "workspace");
@@ -111,17 +111,27 @@
     return give(file);
   }
 
-  // EffectCraft sets its page functions before its wasm has started; calling one then fails
-  // inside wasm-bindgen. Wait for the start (up to 90 s).
-  async function started() {
-    if (app !== "effectcraft") return;
-    for (let i = 0; i < 360; i++) {
+  // An app takes files once its wasm has started, which takes a minute on a first visit (nothing
+  // cached yet). VectorCraft and FilmCraft set their page functions then; EffectCraft sets them
+  // earlier, and calling one before its start fails inside wasm-bindgen. Wait for the start (up to
+  // 90 s). PhotoCraft and LightCraft take drops once they run (drop() waits for that).
+  const READY = {
+    vectorcraft: () => typeof window.vectorcraft?.openFile === "function",
+    filmcraft: () => typeof window.filmcraft?.importFiles === "function",
+    effectcraft: () => {
       const load = window.effectcraftLoad;
       if (load?.error) throw new Error(`EffectCraft didn't start: ${load.error}`);
-      if (load?.readyMs !== undefined) return;
+      return load?.readyMs !== undefined;
+    },
+  };
+  async function started() {
+    const ready = READY[app];
+    if (!ready) return;
+    for (let i = 0; i < 360; i++) {
+      if (ready()) return;
       await new Promise((r) => setTimeout(r, 250));
     }
-    throw new Error("EffectCraft is still starting; try again in a moment.");
+    throw new Error(`${title} is still starting; try again in a moment.`);
   }
 
   // Hand a file to the app the way a person would: the app's own page functions where it has
@@ -151,11 +161,11 @@
     return { ...about, result: `${title} got the file as a file dropped on the app.` };
   }
 
-  // A drop on the app's canvas, once the app takes drops (it accepts the dragover).
+  // A drop on the app's canvas, once the app takes drops (it accepts the dragover), for up to 90 s.
   async function drop(file) {
     const dt = new DataTransfer();
     dt.items.add(file);
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 360; i++) {
       const canvas = document.querySelector("canvas");
       if (canvas) {
         const box = canvas.getBoundingClientRect();
@@ -236,6 +246,8 @@
     handle,
     quiet,
     framed,
+    // A file for the app from elsewhere (the editor's "Open in a Craft App", craft-embed.js).
+    give,
     // A file the app wrote by other means (PhotoCraft's automation writes, craft-storage.js).
     keep: (name, blob) => keep(baseName(name) || "file", blob),
     // craft-remote.js runs each assistant request through this.
