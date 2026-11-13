@@ -237,6 +237,7 @@ jobs:
             echo
             echo "Health check: \`GET /healthz\`. Tags: \`latest\` and the release version (e.g. \`${{ steps.release.outputs.version }}\`)."
             echo "The \`remote\` and \`<version>-remote\` tags add a relay client so an MCP client can drive the open tab through [craft-mcp](https://hub.docker.com/r/$NAMESPACE/craft-mcp)."
+            echo "In those tags, \`EMBED_ORIGINS\` (comma separated, e.g. \`https://*.code.example.com\`) lists the editors that may frame the app and drive it, such as [craft-vscode](https://github.com/hayone1/craft-vscode) in code-server; VS Code's own webviews need no entry. \`EMBED_FILES=false\` stops those editors from lending their workspace files."
             echo "Licensed MIT OR Apache-2.0, as upstream."
           } > /tmp/README.md
 
