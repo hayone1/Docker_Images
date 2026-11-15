@@ -212,7 +212,8 @@ if [ "${CLAUDE_CLI:-true}" != false ] && ! command -v claude >/dev/null; then
 fi
 
 say "Open $PUBLIC_URL"
-code-server --bind-addr 127.0.0.1:8443 --auth "$AUTH" --disable-telemetry --disable-update-check \
+# code-server would listen on $PORT (Caddy's port) instead of --bind-addr.
+env -u PORT code-server --bind-addr 127.0.0.1:8443 --auth "$AUTH" --disable-telemetry --disable-update-check \
   --app-name "Craft Studio" "$PROJECT_DIR" &
 pids+=($!)
 
