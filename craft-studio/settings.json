@@ -1,0 +1,7 @@
+{
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.startupEditor": "none",
+  "security.workspace.trust.enabled": false,
+  "files.autoSave": "afterDelay",
+  "claudeCode.preferredLocation": "panel"
+}

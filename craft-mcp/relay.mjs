@@ -9,6 +9,7 @@
 //   /storage/<app>/<action>            cloud storage (storage.mjs) } which sends X-Gateway-Secret: MCP_KEY
 //   POST /mint with Authorization: Bearer <a MINT_TOKENS token>: a key for an editor that frames the
 //       apps itself (craft-vscode's craft.relayUrl). Such a token can mint keys and nothing else.
+//   PORT                               the port to listen on (default 8080)
 //
 // A key is <expiry>.<nonce>.<signature> signed with MCP_KEY, so keys need no storage and expire.
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -260,4 +261,4 @@ setInterval(() => {
   }
   for (const session of sessions.values()) if (Date.now() - session.seen > IDLE_MS) session.close();
 }, 30_000);
-server.listen(8080);
+server.listen(Number(process.env.PORT) || 8080);
