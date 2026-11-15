@@ -14,6 +14,8 @@
 #   CRAFT_APP_URL      Where the apps are. Unset: the app pages inside this container.
 #   CRAFT_RELAY_URL    A craft-mcp relay outside this container, with CRAFT_RELAY_TOKEN (one of its
 #                      MINT_TOKENS). Unset: the relay inside this container, at PUBLIC_URL/relay.
+#   RELAY_UPSTREAM     With an outside relay: its inside address (craft-mcp:8080). PUBLIC_URL/relay/
+#                      then goes there, so the relay needs no address of its own.
 #   MCP_KEY            The inside relay's signing secret. Unset: made once and saved.
 #   EMBED_ORIGINS      Editors that may frame the inside apps. Default: PUBLIC_URL,vscode-webview://*
 #   EXTENSIONS         More Open VSX extensions to install, comma separated.
@@ -106,6 +108,11 @@ elif [ -z "${CRAFT_RELAY_TOKEN:-}" ]; then
   say "CRAFT_RELAY_URL is set without CRAFT_RELAY_TOKEN: the panels open, but no agent can drive the apps."
 fi
 
+relay_upstream=""
+if [ "$inside_relay" = true ]; then relay_upstream=127.0.0.1:8081
+elif [ -n "${RELAY_UPSTREAM:-}" ]; then relay_upstream=$RELAY_UPSTREAM
+fi
+
 {
   cat <<EOF
 {
@@ -123,10 +130,10 @@ fi
 		respond "ok" 200
 	}
 EOF
-  if [ "$inside_relay" = true ]; then
-    cat <<'EOF'
+  if [ -n "$relay_upstream" ]; then
+    cat <<EOF
 	handle_path /relay/* {
-		reverse_proxy 127.0.0.1:8081
+		reverse_proxy $relay_upstream
 	}
 EOF
   fi

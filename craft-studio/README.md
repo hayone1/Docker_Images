@@ -39,6 +39,7 @@ All settings are optional environment variables.
 | `PROJECT_DIR` | The folder VS Code opens (default `/home/coder/project`). |
 | `CRAFT_APP_URL` | App pages somewhere else, for example `http://craft-app-{app}:8080/`. Without it, the pages inside the container are used. |
 | `CRAFT_RELAY_URL`, `CRAFT_RELAY_TOKEN` | A craft-mcp relay somewhere else, and one of its `MINT_TOKENS`. Without them, the relay inside the container is used. |
+| `RELAY_UPSTREAM` | With an outside relay: its address inside your network, for example `craft-mcp:8080`. The container then passes `PUBLIC_URL/relay/` on to it. |
 | `EMBED_ORIGINS` | Editors that may frame the inside app pages (default `PUBLIC_URL,vscode-webview://*`). |
 | `EXTENSIONS` | More Open VSX extensions to install, separated by commas. |
 | `UPDATE_EXTENSIONS` | `false` keeps the installed Claude Code and Craft Apps versions. By default each start installs the newest ones. |
