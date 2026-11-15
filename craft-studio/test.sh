@@ -54,7 +54,7 @@ echo "ok: five app pages, editor settings, embedding script"
 curl -fsS -b "$cookie" "http://127.0.0.1:$port/proxy/4100/photocraft/" | grep -qi '<html' || fail "app through /proxy/4100/"
 echo "ok: app page through code-server's proxy"
 
-exts=$(inside code-server --list-extensions)
+exts=$(docker exec -u 1000 -e HOME=/home/coder "$name" code-server --list-extensions)
 echo "$exts" | grep -qi '^anthropic.claude-code$' || fail "Claude Code extension missing"
 echo "$exts" | grep -qi '^hayone1.craft-vscode$' || fail "Craft Apps extension missing"
 echo "ok: extensions $(echo "$exts" | tr '\n' ' ')"
