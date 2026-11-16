@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Craft Studio: everything in one container, for one-click hosts (Railway, Render, Koyeb, Fly.io,
+# Craft VS Code: everything in one container, for one-click hosts (Railway, Render, Koyeb, Fly.io,
 # a VPS). One port ($PORT, default 8080) serves:
 #   /          code-server (VS Code in the browser) with Claude Code and Craft Apps (craft-vscode)
 #   /relay/    the craft-mcp relay, so the app pages and the coding agent can reach each other
@@ -7,7 +7,7 @@
 # Craft Apps extension shows them in editor panels through code-server's /proxy/<port>/, so
 # code-server's password covers the apps too.
 # start.sh documents the settings. The parts come from the images CI already builds, so this
-# image only copies files. Build from the repo root: docker build -f craft-studio/Dockerfile .
+# image only copies files. Build from the repo root: docker build -f craft-vscode/Dockerfile .
 ARG CODE_SERVER_IMAGE=codercom/code-server:latest
 ARG NAMESPACE=hayone
 
@@ -49,8 +49,8 @@ COPY --from=lightcraft /usr/share/nginx/html /opt/craft-apps/lightcraft
 COPY --from=filmcraft /usr/share/nginx/html /opt/craft-apps/filmcraft
 COPY --from=effectcraft /usr/share/nginx/html /opt/craft-apps/effectcraft
 
-COPY --chmod=755 craft-studio/entrypoint.sh craft-studio/start.sh /opt/craft-studio/
-COPY craft-studio/settings.json /opt/craft-studio/settings.json
+COPY --chmod=755 craft-vscode/entrypoint.sh craft-vscode/start.sh /opt/craft-vscode/
+COPY craft-vscode/settings.json /opt/craft-vscode/settings.json
 
 ENV PORT=8080 \
     CRAFT_APPS=photocraft,vectorcraft,lightcraft,filmcraft,effectcraft
@@ -60,6 +60,6 @@ EXPOSE 8080
 # Starts as root only to give a fresh volume to the coder user, then runs start.sh as coder. In
 # Kubernetes with runAsUser 1000 it runs start.sh directly.
 # dumb-init (in the code-server image) forwards signals and reaps processes.
-ENTRYPOINT ["/usr/bin/dumb-init", "/opt/craft-studio/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/dumb-init", "/opt/craft-vscode/entrypoint.sh"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null || exit 1

@@ -1,7 +1,7 @@
-name: Build craft-studio
+name: Build craft-vscode
 
-# hayone/craft-studio: code-server, Claude Code, Craft Apps, the craft-mcp relay and the five app
-# pages in one image (craft-studio/), for one-click hosts. It only copies files out of the images
+# hayone/craft-vscode: code-server, Claude Code, Craft Apps, the craft-mcp relay and the five app
+# pages in one image (craft-vscode/), for one-click hosts. It only copies files out of the images
 # that craft-web.yml builds, so it is rebuilt after each run of that workflow, when one of those
 # images (or code-server) changed. Pull requests build and test it without pushing.
 
@@ -11,9 +11,9 @@ on:
     types: [completed]
   push:
     branches: [main]
-    paths: ['craft-studio/**', 'craft-mcp/**', '.github/workflows/craft-studio.yml']
+    paths: ['craft-vscode/**', 'craft-mcp/**', '.github/workflows/craft-vscode.yml']
   pull_request:
-    paths: ['craft-studio/**', 'craft-mcp/**', '.github/workflows/craft-studio.yml']
+    paths: ['craft-vscode/**', 'craft-mcp/**', '.github/workflows/craft-vscode.yml']
   workflow_dispatch:
     inputs:
       force:
@@ -26,16 +26,16 @@ on:
     - cron: '41 5 * * *'
 
 concurrency:
-  group: craft-studio-${{ github.ref }}
+  group: craft-vscode-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  craft-studio:
+  craft-vscode:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
-      IMAGE: hayone/craft-studio
+      IMAGE: hayone/craft-vscode
       PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     steps:
       - name: Check out the repo
@@ -52,13 +52,13 @@ jobs:
             echo "$ref $(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}')"
           done > /tmp/inputs
           cat /tmp/inputs
-          echo "tag=$(cat /tmp/inputs craft-studio/* craft-mcp/* | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(cat /tmp/inputs craft-vscode/* craft-mcp/* | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
       - name: Check Docker Hub for the tag
         id: exists
         run: |
           code=$(curl -s -o /dev/null -w '%{http_code}' \
-            "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-studio/tags/${{ steps.tag.outputs.tag }}")
+            "https://hub.docker.com/v2/namespaces/hayone/repositories/craft-vscode/tags/${{ steps.tag.outputs.tag }}")
           if [ "$code" = 200 ] && [ "${{ inputs.force }}" != "true" ] && [ "$GITHUB_EVENT_NAME" != push ] \
              && [ "$GITHUB_EVENT_NAME" != pull_request ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -80,14 +80,14 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: craft-studio/Dockerfile
+          file: craft-vscode/Dockerfile
           load: true
           platforms: linux/amd64
-          tags: craft-studio:test
+          tags: craft-vscode:test
 
       - name: Smoke test
         if: steps.exists.outputs.skip != 'true'
-        run: bash craft-studio/test.sh craft-studio:test
+        run: bash craft-vscode/test.sh craft-vscode:test
 
       - name: Log in to Docker Hub
         if: steps.exists.outputs.skip != 'true' && env.PUSH == 'true'
@@ -101,16 +101,18 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: craft-studio/Dockerfile
+          file: craft-vscode/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           labels: |
-            org.opencontainers.image.title=craft-studio
+            org.opencontainers.image.title=craft-vscode
             org.opencontainers.image.description=VS Code in the browser with Claude Code and the storytold craft apps, ready to drive over MCP
             org.opencontainers.image.source=https://github.com/hayone1/Docker_Images
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
             ${{ env.IMAGE }}:latest
+            hayone/craft-studio:${{ steps.tag.outputs.tag }}
+            hayone/craft-studio:latest
 
       - name: Update Docker Hub description
         if: steps.exists.outputs.skip != 'true' && env.PUSH == 'true'
@@ -118,6 +120,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN || secrets.DOCKER_PASSWORD }}
-          repository: hayone/craft-studio
+          repository: hayone/craft-vscode
           short-description: VS Code in the browser with Claude Code and the craft apps, in one container
-          readme-filepath: craft-studio/README.md
+          readme-filepath: craft-vscode/README.md
