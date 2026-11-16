@@ -1,4 +1,4 @@
-# Only builds from the repo root read this (craft-studio): send just what they copy.
+# Only builds from the repo root read this (craft-code): send just what they copy.
 *
-!craft-studio
+!craft-code
 !craft-mcp
