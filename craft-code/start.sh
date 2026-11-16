@@ -1,5 +1,5 @@
 #!/bin/bash
-# Craft VS Code: starts Caddy, the craft-mcp relay and code-server, and stops the container when one
+# Craft Code: starts Caddy, the craft-mcp relay and code-server, and stops the container when one
 # of them stops (the host then restarts it).
 #
 # Settings (environment variables), all optional:
@@ -30,7 +30,7 @@ export PATH="$HOME/.local/bin:$PATH"
 STATE="$HOME/.craft-studio"
 mkdir -p "$STATE" && chmod 700 "$STATE"
 
-say() { printf '[craft-vscode] %s\n' "$*"; }
+say() { printf '[craft-code] %s\n' "$*"; }
 random() { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
 
 # ---- the public address ------------------------------------------------------------------------
@@ -190,7 +190,7 @@ unset MCP_KEY
 PROJECT_DIR=${PROJECT_DIR:-$HOME/project}
 mkdir -p "$PROJECT_DIR" "$HOME/.local/share/code-server/User"
 [ -f "$HOME/.local/share/code-server/User/settings.json" ] ||
-  cp /opt/craft-vscode/settings.json "$HOME/.local/share/code-server/User/settings.json"
+  cp /opt/craft-code/settings.json "$HOME/.local/share/code-server/User/settings.json"
 
 latest() { curl -fsS --max-time 15 "https://open-vsx.org/api/${1%%.*}/${1#*.}" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true; }
 installed=$(code-server --list-extensions --show-versions 2>/dev/null || true)
@@ -214,7 +214,7 @@ fi
 say "Open $PUBLIC_URL"
 # code-server would listen on $PORT (Caddy's port) instead of --bind-addr.
 env -u PORT code-server --bind-addr 127.0.0.1:8443 --auth "$AUTH" --disable-telemetry --disable-update-check \
-  --app-name "Craft VS Code" "$PROJECT_DIR" &
+  --app-name "Craft Code" "$PROJECT_DIR" &
 pids+=($!)
 
 # Stop when any part stops, so the host restarts the whole container.

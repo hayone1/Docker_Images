@@ -1,4 +1,4 @@
-# craft-vscode
+# craft-code
 
 VS Code in the browser ([code-server](https://github.com/coder/code-server)) with Claude Code and
 the [Craft Apps](https://github.com/hayone1/craft-vscode) extension, plus the five
@@ -11,7 +11,7 @@ an editor panel. Then ask Claude Code in the panel next to it, for example "open
 draw a gold star".
 
 ```sh
-docker run -d -p 8080:8080 -v craft-home:/home/coder -e PASSWORD=choose-one hayone/craft-vscode
+docker run -d -p 8080:8080 -v craft-home:/home/coder -e PASSWORD=choose-one hayone/craft-code
 # open http://localhost:8080
 ```
 
@@ -56,5 +56,5 @@ there.
 - The app pages share the editor's address. Only the five app pages from the image are served
   there.
 
-Source: [hayone1/Docker_Images](https://github.com/hayone1/Docker_Images/tree/main/craft-vscode).
+Source: [hayone1/Docker_Images](https://github.com/hayone1/Docker_Images/tree/main/craft-code).
 Deploy buttons, Docker Compose and Helm charts: [hayone1/craft-code](https://github.com/hayone1/craft-code). The same image is the workspace image of craft-coder there.

@@ -5,6 +5,6 @@
 set -eu
 if [ "$(id -u)" = 0 ]; then
   [ "$(stat -c %u /home/coder)" = 1000 ] || chown 1000:1000 /home/coder
-  exec setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/coder USER=coder /opt/craft-vscode/start.sh "$@"
+  exec setpriv --reuid=1000 --regid=1000 --init-groups env HOME=/home/coder USER=coder /opt/craft-code/start.sh "$@"
 fi
-exec /opt/craft-vscode/start.sh "$@"
+exec /opt/craft-code/start.sh "$@"

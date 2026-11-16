@@ -1,10 +1,10 @@
 #!/bin/bash
-# Smoke test for a craft-vscode image: ./test.sh <image>
+# Smoke test for a craft-code image: ./test.sh <image>
 # Starts the container, then checks each part: Caddy, code-server's sign-in, the relay, a minted
 # relay connection, the app pages with their editor settings, and the two extensions.
 set -eu # no pipefail: `curl | grep -q` would fail when grep stops reading early
 image=${1:?usage: test.sh <image>}
-name=craft-vscode-test
+name=craft-code-test
 port=18080
 docker rm -f "$name" >/dev/null 2>&1 || true
 docker run -d --name "$name" -p "$port:8080" -e PASSWORD=smoke-test-password "$image" >/dev/null
