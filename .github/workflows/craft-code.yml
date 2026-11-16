@@ -81,6 +81,7 @@ jobs:
         with:
           context: .
           file: craft-code/Dockerfile
+          target: vscode
           load: true
           platforms: linux/amd64
           tags: craft-code:test
@@ -88,6 +89,27 @@ jobs:
       - name: Smoke test
         if: steps.exists.outputs.skip != 'true'
         run: bash craft-code/test.sh craft-code:test
+
+      - name: Build the workspace for the test
+        if: steps.exists.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: craft-code/Dockerfile
+          target: workspace
+          load: true
+          platforms: linux/amd64
+          tags: craft-code:workspace-test
+
+      - name: Check the workspace
+        if: steps.exists.outputs.skip != 'true'
+        run: |
+          set -eu
+          docker run --rm --entrypoint sh craft-code:workspace-test -c '
+            id -u | grep -qx 1000
+            /usr/lib/code-server/bin/code-server --version
+            node --version && npx --version && git --version && jq --version
+            for c in photocraft vectorcraft lightcraft filmcraft effectcraft; do command -v $c-cli; done'
 
       - name: Log in to Docker Hub
         if: steps.exists.outputs.skip != 'true' && env.PUSH == 'true'
@@ -102,6 +124,7 @@ jobs:
         with:
           context: .
           file: craft-code/Dockerfile
+          target: vscode
           push: true
           platforms: linux/amd64,linux/arm64
           labels: |
@@ -111,8 +134,26 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
             ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:vscode
             hayone/craft-studio:${{ steps.tag.outputs.tag }}
             hayone/craft-studio:latest
+
+      - name: Build and push the workspace
+        if: steps.exists.outputs.skip != 'true' && env.PUSH == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: craft-code/Dockerfile
+          target: workspace
+          push: true
+          platforms: linux/amd64,linux/arm64
+          labels: |
+            org.opencontainers.image.title=craft-code workspace
+            org.opencontainers.image.description=Coder workspace: VS Code in the browser with Node and the craft CLIs
+            org.opencontainers.image.source=https://github.com/hayone1/Docker_Images
+          tags: |
+            ${{ env.IMAGE }}:workspace-${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:workspace
 
       - name: Update Docker Hub description
         if: steps.exists.outputs.skip != 'true' && env.PUSH == 'true'

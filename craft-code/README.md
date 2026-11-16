@@ -15,6 +15,13 @@ docker run -d -p 8080:8080 -v craft-home:/home/coder -e PASSWORD=choose-one hayo
 # open http://localhost:8080
 ```
 
+## Tags
+
+| Tag | What the tag holds |
+| --- | --- |
+| `vscode`, `latest` | The whole studio for one person, as described on this page. |
+| `workspace` | The workspace image for [craft-coder](https://github.com/hayone1/craft-code), where Coder gives each user their own workspace. The image has code-server, Node, git, jq and the five craft CLIs. The image has no apps, relay or Caddy, because craft-coder runs those once for every user. The image starts as the `coder` user, and a Coder template starts the Coder agent in it. |
+
 ## What runs inside
 
 | Path on the port | What answers |

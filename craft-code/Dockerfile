@@ -20,7 +20,9 @@ FROM ${NAMESPACE}/effectcraft:remote AS effectcraft
 FROM caddy:2-alpine AS caddy
 FROM node:22-bookworm-slim AS node
 
-FROM ${CODE_SERVER_IMAGE}
+# The Coder workspace (hayone/craft-code:workspace): code-server, Node, git and the craft CLIs. Coder
+# runs the apps and the relay once for everyone, so they are not in this stage.
+FROM ${CODE_SERVER_IMAGE} AS workspace
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl jq git util-linux \
@@ -33,14 +35,21 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node --version && npm --version
 
+# The five app CLIs (the relay runs them in bridge mode; coding agents can run them too).
+COPY --from=relay /usr/local/bin/photocraft-cli /usr/local/bin/vectorcraft-cli /usr/local/bin/lightcraft-cli \
+    /usr/local/bin/filmcraft-cli /usr/local/bin/effectcraft-cli /usr/local/bin/
+USER coder
+
+# The all-in-one studio (hayone/craft-code:vscode and :latest): the workspace plus Caddy, the relay
+# and the app pages, behind one port.
+FROM workspace AS vscode
+USER root
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
-# The relay and the five app CLIs it runs in bridge mode.
+# The relay.
 COPY --from=relay /app /opt/craft-mcp
 # The relay source from this repo, so a relay change reaches the studio in the same run.
 COPY craft-mcp/relay.mjs craft-mcp/storage.mjs /opt/craft-mcp/
-COPY --from=relay /usr/local/bin/photocraft-cli /usr/local/bin/vectorcraft-cli /usr/local/bin/lightcraft-cli \
-    /usr/local/bin/filmcraft-cli /usr/local/bin/effectcraft-cli /usr/local/bin/
 
 # The app pages (the remote variants: relay client and editor embedding), with their .gz copies.
 COPY --from=photocraft /usr/share/nginx/html /opt/craft-apps/photocraft
