@@ -1,6 +1,6 @@
 name: Build craft-code
 
-# hayone/craft-code: code-server, Claude Code, Craft Apps, the craft-mcp relay and the five app
+# hayone/craft-code: code-server, Claude Code, Craft Apps, the craft-mcp relay and the eight app
 # pages in one image (craft-code/), for one-click hosts. It only copies files out of the images
 # that craft-web.yml builds, so it is rebuilt after each run of that workflow, when one of those
 # images (or code-server) changed. Pull requests build and test it without pushing.
@@ -48,6 +48,7 @@ jobs:
           # One tag per combination of this folder and the digests of the images it copies from.
           for ref in hayone/craft-mcp:latest hayone/photocraft:remote hayone/vectorcraft:remote \
                      hayone/lightcraft:remote hayone/filmcraft:remote hayone/effectcraft:remote \
+                     hayone/wordcraft:remote hayone/gridcraft:remote hayone/deckcraft:remote \
                      codercom/code-server:latest caddy:2-alpine node:22-bookworm-slim; do
             echo "$ref $(docker buildx imagetools inspect "$ref" --format '{{json .Manifest.Digest}}')"
           done > /tmp/inputs
@@ -109,7 +110,7 @@ jobs:
             id -u | grep -qx 1000
             /usr/lib/code-server/bin/code-server --version
             node --version && npx --version && git --version && jq --version
-            for c in photocraft vectorcraft lightcraft filmcraft effectcraft; do command -v $c-cli; done'
+            for c in photocraft vectorcraft lightcraft filmcraft effectcraft wordcraft gridcraft deckcraft; do command -v $c-cli; done'
 
       - name: Log in to Docker Hub
         if: steps.exists.outputs.skip != 'true' && env.PUSH == 'true'

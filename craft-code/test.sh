@@ -43,12 +43,12 @@ session=$(inside curl -fsS -X POST -H "Authorization: Bearer $token" "http://127
 echo "$session" | grep -q '"tab":"ws://localhost:8080/relay/' || fail "minted connection: $session"
 echo "ok: relay mints connections at PUBLIC_URL/relay"
 
-for app in photocraft vectorcraft lightcraft filmcraft effectcraft; do
+for app in photocraft vectorcraft lightcraft filmcraft effectcraft wordcraft gridcraft deckcraft; do
   inside curl -fsS "http://127.0.0.1:4100/$app/" | grep -qi '<html' || fail "$app page"
   inside curl -fsS "http://127.0.0.1:4100/$app/_embed/config.json" | grep -q '"http://localhost:8080"' || fail "$app embed config"
   inside curl -fsS "http://127.0.0.1:4100/$app/" | grep -q "craft-embed:hello" || fail "$app page has no editor embedding (craft-embed.js)"
 done
-echo "ok: five app pages, editor settings, embedding script"
+echo "ok: eight app pages, editor settings, embedding script"
 
 # Through code-server's port proxy, as the panels load them (signed in).
 curl -fsS -b "$cookie" "http://127.0.0.1:$port/proxy/4100/photocraft/" | grep -qi '<html' || fail "app through /proxy/4100/"
@@ -59,6 +59,6 @@ echo "$exts" | grep -qi '^anthropic.claude-code$' || fail "Claude Code extension
 echo "$exts" | grep -qi '^hayone1.craft-vscode$' || fail "Craft Apps extension missing"
 echo "ok: extensions $(echo "$exts" | tr '\n' ' ')"
 
-inside sh -c 'for c in photocraft vectorcraft lightcraft filmcraft effectcraft; do command -v $c-cli >/dev/null || exit 1; done' || fail "app CLIs"
+inside sh -c 'for c in photocraft vectorcraft lightcraft filmcraft effectcraft wordcraft gridcraft deckcraft; do command -v $c-cli >/dev/null || exit 1; done' || fail "app CLIs"
 echo "ok: app CLIs"
 echo "PASS"
