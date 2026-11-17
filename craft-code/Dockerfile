@@ -3,7 +3,7 @@
 # a VPS). One port ($PORT, default 8080) serves:
 #   /          code-server (VS Code in the browser) with Claude Code and Craft Apps (craft-vscode)
 #   /relay/    the craft-mcp relay, so the app pages and the coding agent can reach each other
-# Inside the container, Caddy also serves the five craft app pages on 127.0.0.1:4100/<app>/; the
+# Inside the container, Caddy also serves the eight craft app pages on 127.0.0.1:4100/<app>/; the
 # Craft Apps extension shows them in editor panels through code-server's /proxy/<port>/, so
 # code-server's password covers the apps too.
 # start.sh documents the settings. The parts come from the images CI already builds, so this
@@ -17,6 +17,9 @@ FROM ${NAMESPACE}/vectorcraft:remote AS vectorcraft
 FROM ${NAMESPACE}/lightcraft:remote AS lightcraft
 FROM ${NAMESPACE}/filmcraft:remote AS filmcraft
 FROM ${NAMESPACE}/effectcraft:remote AS effectcraft
+FROM ${NAMESPACE}/wordcraft:remote AS wordcraft
+FROM ${NAMESPACE}/gridcraft:remote AS gridcraft
+FROM ${NAMESPACE}/deckcraft:remote AS deckcraft
 FROM caddy:2-alpine AS caddy
 FROM node:22-bookworm-slim AS node
 
@@ -35,9 +38,10 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node --version && npm --version
 
-# The five app CLIs (the relay runs them in bridge mode; coding agents can run them too).
+# The app CLIs (the relay runs them in bridge mode; coding agents can run them too).
 COPY --from=relay /usr/local/bin/photocraft-cli /usr/local/bin/vectorcraft-cli /usr/local/bin/lightcraft-cli \
-    /usr/local/bin/filmcraft-cli /usr/local/bin/effectcraft-cli /usr/local/bin/
+    /usr/local/bin/filmcraft-cli /usr/local/bin/effectcraft-cli /usr/local/bin/wordcraft-cli \
+    /usr/local/bin/gridcraft-cli /usr/local/bin/deckcraft-cli /usr/local/bin/
 USER coder
 
 # The all-in-one studio (hayone/craft-code:vscode and :latest): the workspace plus Caddy, the relay
@@ -57,12 +61,15 @@ COPY --from=vectorcraft /usr/share/nginx/html /opt/craft-apps/vectorcraft
 COPY --from=lightcraft /usr/share/nginx/html /opt/craft-apps/lightcraft
 COPY --from=filmcraft /usr/share/nginx/html /opt/craft-apps/filmcraft
 COPY --from=effectcraft /usr/share/nginx/html /opt/craft-apps/effectcraft
+COPY --from=wordcraft /usr/share/nginx/html /opt/craft-apps/wordcraft
+COPY --from=gridcraft /usr/share/nginx/html /opt/craft-apps/gridcraft
+COPY --from=deckcraft /usr/share/nginx/html /opt/craft-apps/deckcraft
 
 COPY --chmod=755 craft-code/entrypoint.sh craft-code/start.sh /opt/craft-code/
 COPY craft-code/settings.json /opt/craft-code/settings.json
 
 ENV PORT=8080 \
-    CRAFT_APPS=photocraft,vectorcraft,lightcraft,filmcraft,effectcraft
+    CRAFT_APPS=photocraft,vectorcraft,lightcraft,filmcraft,effectcraft,wordcraft,gridcraft,deckcraft
 EXPOSE 8080
 # Keep /home/coder on a volume: projects, settings, extensions and the generated secrets live there.
 # (No VOLUME line: some hosts, Railway among them, refuse images that declare one.)

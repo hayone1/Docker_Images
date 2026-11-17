@@ -1,9 +1,9 @@
 # craft-code
 
 VS Code in the browser ([code-server](https://github.com/coder/code-server)) with Claude Code and
-the [Craft Apps](https://github.com/hayone1/craft-vscode) extension, plus the five
+the [Craft Apps](https://github.com/hayone1/craft-vscode) extension, plus eight
 [storytold](https://github.com/storytold) craft apps (PhotoCraft, VectorCraft, LightCraft,
-FilmCraft, EffectCraft) and the [craft-mcp](https://hub.docker.com/r/hayone/craft-mcp) relay. All
+FilmCraft, EffectCraft, WordCraft, GridCraft and DeckCraft) and the [craft-mcp](https://hub.docker.com/r/hayone/craft-mcp) relay. All
 of it runs in one container on one port, so one-click hosts can run it.
 
 Open the address, sign in with the password, and click an app in the Craft view. The app opens in
@@ -20,7 +20,7 @@ docker run -d -p 8080:8080 -v craft-home:/home/coder -e PASSWORD=choose-one hayo
 | Tag | What the tag holds |
 | --- | --- |
 | `vscode`, `latest` | The whole studio for one person, as described on this page. |
-| `workspace` | The workspace image for [craft-coder](https://github.com/hayone1/craft-code), where Coder gives each user their own workspace. The image has code-server, Node, git, jq and the five craft CLIs. The image has no apps, relay or Caddy, because craft-coder runs those once for every user. The image starts as the `coder` user, and a Coder template starts the Coder agent in it. |
+| `workspace` | The workspace image for [craft-coder](https://github.com/hayone1/craft-code), where Coder gives each user their own workspace. The image has code-server, Node, git, jq and the eight craft CLIs. The image has no apps, relay or Caddy, because craft-coder runs those once for every user. The image starts as the `coder` user, and a Coder template starts the Coder agent in it. |
 
 ## What runs inside
 
@@ -60,7 +60,7 @@ there.
 - Browsers only run VS Code's panels on `https://` or on `localhost`. On a server, put the
   container behind HTTPS. One-click hosts do that for you.
 - Each person signs in to Claude Code in the Claude Code panel with their own account.
-- The app pages share the editor's address. Only the five app pages from the image are served
+- The app pages share the editor's address. Only the eight app pages from the image are served
   there.
 
 Source: [hayone1/Docker_Images](https://github.com/hayone1/Docker_Images/tree/main/craft-code).

@@ -193,6 +193,16 @@ mkdir -p "$PROJECT_DIR" "$HOME/.local/share/code-server/User"
   cp /opt/craft-code/settings.json "$HOME/.local/share/code-server/User/settings.json"
 
 latest() { curl -fsS --max-time 15 "https://open-vsx.org/api/${1%%.*}/${1#*.}" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true; }
+fromFile() {
+  [ -n "$2" ] || return 1
+  url=$(curl -fsS --max-time 15 "https://open-vsx.org/api/${1%%.*}/${1#*.}/$2" 2>/dev/null | jq -r '.files.download // empty' 2>/dev/null) || return 1
+  [ -n "$url" ] || return 1
+  file=$(mktemp --suffix .vsix)
+  curl -fsSL --max-time 300 -o "$file" "$url" && code-server --install-extension "$file" --force >/dev/null 2>&1
+  status=$?
+  rm -f "$file"
+  return $status
+}
 installed=$(code-server --list-extensions --show-versions 2>/dev/null || true)
 for ext in anthropic.claude-code hayone1.craft-vscode $(printf '%s' "${EXTENSIONS:-}" | tr ',' ' '); do
   have=$(printf '%s\n' "$installed" | grep -i "^$ext@" | head -n1 | cut -d@ -f2 || true)
@@ -201,7 +211,10 @@ for ext in anthropic.claude-code hayone1.craft-vscode $(printf '%s' "${EXTENSION
   if [ -z "$have" ] || { [ -n "$want" ] && [ "$want" != "$have" ]; }; then
     say "Installing $ext${want:+ $want}"
     # The version must be named: --force alone leaves an installed copy as it is, however old.
+    # Open VSX's search, which that uses, can lag a new release by hours ("not found"): then the
+    # release's file from the API.
     code-server --install-extension "$ext${want:+@$want}" --force >/dev/null 2>&1 ||
+      fromFile "$ext" "$want" ||
       say "couldn't install $ext (Open VSX unreachable?); it stays as it is"
   fi
 done
