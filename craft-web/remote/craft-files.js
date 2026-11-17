@@ -15,7 +15,7 @@
 // editor copies them into its workspace. Downloads at other times go on as before and are kept too.
 (() => {
   const app = document.currentScript.dataset.app;
-  const title = { photocraft: "PhotoCraft", vectorcraft: "VectorCraft", lightcraft: "LightCraft", filmcraft: "FilmCraft", effectcraft: "EffectCraft" }[app] ?? app;
+  const title = { photocraft: "PhotoCraft", vectorcraft: "VectorCraft", lightcraft: "LightCraft", filmcraft: "FilmCraft", effectcraft: "EffectCraft", wordcraft: "WordCraft", gridcraft: "GridCraft", deckcraft: "DeckCraft" }[app] ?? app;
   const KEEP_FILES = 32;
   const KEEP_BYTES = 1 << 30;
   // After a request: downloads the app starts a moment later (a paced click, the next frame).

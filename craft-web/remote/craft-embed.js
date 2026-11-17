@@ -133,12 +133,81 @@
     }];
   }
 
+  // ---- host mode: the app's saves go to the workspace ------------------------------------------
+  // The apps built on craft-web-host (storytold/craft-libs) hand every file they would download to
+  // the page when their canvas has data-host="page": `<app>:save` {name, saveAs, bytes, id?} as an
+  // event on the canvas. The page takes files in with `<app>:open` {name, bytes} and confirms a
+  // save with `<app>:saved` {id}. In an editor, the page writes each save into the workspace:
+  //  - a Save of the document's own file (saveAs false, the same name) goes back to the file the
+  //    document came from, with no question;
+  //  - anything else (Save As, an export, a new document) asks the editor's save dialog where to
+  //    put it, starting in the document's folder. Cancel leaves the document unsaved.
+  // While an agent request runs, no dialog opens: the file is kept for the agent instead
+  // (craft_app_files), as a download would be. Without the editor's files, a save downloads.
+  const HOST_APPS = new Set(["wordcraft", "gridcraft", "deckcraft"]);
+  let canvas = null;
+  let appReady = false;
+  const pending = []; // files to open once the app listens
+  let doc = null; // {name, path}: the workspace file of the document, as the app names it
+  const hostOpen = (name, bytes, path) => {
+    if (!appReady) return pending.push([name, bytes, path]);
+    const buf = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).slice().buffer;
+    canvas.dispatchEvent(new CustomEvent(`${app}:open`, { detail: { name, bytes: buf } }));
+    doc = path ? { name, path } : null;
+  };
+  const download = (name, blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click(); // craft-files.js keeps a copy for the agent
+    setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+  };
+  async function hostSave({ name, saveAs, bytes, id }) {
+    name = String(name ?? "").split(/[\\/]/).pop() || "Untitled";
+    const blob = new Blob([bytes]);
+    const saved = () => { if (id != null) canvas.dispatchEvent(new CustomEvent(`${app}:saved`, { detail: { id } })); };
+    if (!lending) return download(name, blob), saved();
+    window.craftFiles?.keep(name, blob);
+    const own = !saveAs && doc && doc.name === name;
+    if (!own && window.craftFiles?.quiet()) return saved();
+    try {
+      const path = own ? doc.path : await ask("saveAs", { name, near: doc?.path ?? "" });
+      if (!path) return; // the person cancelled: the document stays unsaved
+      await ask("write", { path, bytes: new Uint8Array(bytes) });
+      if (saveAs || !doc) doc = { name, path };
+      saved();
+    } catch (e) {
+      console.warn(`craft-embed: ${name} wasn't saved: ${e?.message ?? e}`);
+      canvas.dispatchEvent(new CustomEvent(`${app}:failed`, { detail: { error: String(e?.message ?? e), id } }));
+    }
+  }
+  if (HOST_APPS.has(app)) {
+    // The app reads data-host when it starts, after the page is parsed.
+    const attach = () => {
+      if (canvas || document.readyState === "loading") return;
+      canvas = document.getElementById(`${app}_canvas`);
+      if (!canvas) return;
+      canvas.dataset.host = "page";
+      canvas.addEventListener(`${app}:ready`, () => {
+        appReady = true;
+        for (const f of pending.splice(0)) hostOpen(...f);
+      });
+      canvas.addEventListener(`${app}:save`, (e) => { hostSave(e.detail ?? {}); });
+    };
+    attach();
+    document.addEventListener("readystatechange", attach);
+  }
+
   // Files the editor hands over (dropped on its apps list, or "Open in a Craft App"): the app gets
-  // each one as craft-files.js hands it files from the agent.
+  // each one as craft-files.js hands it files from the agent, or with `<app>:open` in host mode.
   async function openFiles(files) {
     if (!Array.isArray(files)) return;
     for (const f of files) {
       if (!f?.bytes || !f.name) continue;
+      if (canvas) {
+        hostOpen(String(f.name), f.bytes, typeof f.path === "string" ? f.path : null);
+        continue;
+      }
       try {
         await window.craftFiles.give(new File([f.bytes], String(f.name), { type: f.type || "" }));
       } catch (e) {
@@ -186,6 +255,11 @@
     try {
       const { files } = await ask("drop", { uris });
       if (!files?.length) return send("dragleave");
+      if (canvas) {
+        send("dragleave");
+        for (const f of files) hostOpen(f.name, f.bytes, f.path);
+        return;
+      }
       const dt = new DataTransfer();
       for (const f of files) dt.items.add(new File([f.bytes], f.name, { type: f.type || "" }));
       for (const type of ["dragenter", "dragover", "drop"]) send(type, dt);

@@ -41,11 +41,8 @@ jobs:
           - { app: pdfcraft, variant: remote }
           # No craft-mcp support yet: official image only.
           - { app: figcraft, variant: remote }
-          - { app: gridcraft, variant: remote }
           - { app: cadcraft, variant: remote }
-          - { app: deckcraft, variant: remote }
           - { app: soundcraft, variant: remote }
-          - { app: wordcraft, variant: remote }
     permissions:
       contents: read
       attestations: write
@@ -267,7 +264,7 @@ jobs:
         id: versions
         run: |
           set -euo pipefail
-          for app in photocraft vectorcraft lightcraft filmcraft effectcraft; do
+          for app in photocraft vectorcraft lightcraft filmcraft effectcraft wordcraft gridcraft deckcraft; do
             tag=$(gh api "repos/storytold/$app/releases/latest" -q .tag_name)
             echo "${app^^}_VERSION=${tag#v}" >> /tmp/build-args
           done

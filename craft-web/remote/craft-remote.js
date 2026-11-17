@@ -7,7 +7,7 @@
 // window.craftAssistant exposes the connection and its state.
 (() => {
   const app = document.currentScript.dataset.app;
-  const title = { photocraft: "PhotoCraft", vectorcraft: "VectorCraft", lightcraft: "LightCraft", filmcraft: "FilmCraft", effectcraft: "EffectCraft" }[app] ?? app;
+  const title = { photocraft: "PhotoCraft", vectorcraft: "VectorCraft", lightcraft: "LightCraft", filmcraft: "FilmCraft", effectcraft: "EffectCraft", wordcraft: "WordCraft", gridcraft: "GridCraft", deckcraft: "DeckCraft" }[app] ?? app;
   // One origin can serve several apps, so the key names the app.
   const STORE = `craftAssistant:${app}`;
   const load = () => {
