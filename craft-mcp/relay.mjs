@@ -33,6 +33,14 @@ const BRIDGE = {
   lightcraft: (p) => ["--connect", `127.0.0.1:${p}`],
   filmcraft: (p) => ["--bridge", `127.0.0.1:${p}`],
   effectcraft: (p) => ["--bridge", `127.0.0.1:${p}`],
+  wordcraft: (p) => ["--connect", `127.0.0.1:${p}`],
+  gridcraft: (p) => ["--connect", String(p)],
+  deckcraft: (p) => ["--connect", `127.0.0.1:${p}`],
+};
+// The CLIs that read the control token from the environment rather than from a flag.
+const BRIDGE_ENV = {
+  wordcraft: () => ({ WORDCRAFT_CONTROL_KEY: token }),
+  gridcraft: () => ({ GRIDCRAFT_CONTROL_TOKEN: token }),
 };
 
 const PUBLIC_HOST = process.env.PUBLIC_HOST;
@@ -115,7 +123,8 @@ const controlServer = (slot) => net.createServer((socket) => {
       challenge = null;
       const ok = answered
         ? same(String(msg.params?.proof ?? "").toLowerCase(), proof(app, "client", ...answered))
-        : msg.params?.token === token;
+        // wordcraft sends {method: "auth", key} with the key beside the method.
+        : [msg.params?.token, msg.params?.key, msg.key].includes(token);
       return reply(ok ? { id, ok, result: { authenticated: true } } : refused);
     }
     // craft.files belongs to the files endpoint below, not to the app's CLI.
@@ -128,7 +137,8 @@ const controlServer = (slot) => net.createServer((socket) => {
 async function openSession(key, app) {
   const control = controlServer(`${key}/${app}`);
   await new Promise((resolve) => control.listen(0, "127.0.0.1", resolve));
-  const cli = new StdioClientTransport({ command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)], stderr: "inherit" });
+  const cli = new StdioClientTransport({ command: `${app}-cli`, args: ["mcp", ...BRIDGE[app](control.address().port)],
+    env: BRIDGE_ENV[app]?.(), stderr: "inherit" });
   const session = { key, app, seen: Date.now() };
   const http = new StreamableHTTPServerTransport({
     sessionIdGenerator: randomUUID,
