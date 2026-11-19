@@ -22,4 +22,4 @@ docker-compose.yml.local
 
 *.tgz
 
-_debug/craft-web/site/
+_debug/
