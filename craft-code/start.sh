@@ -193,9 +193,25 @@ mkdir -p "$PROJECT_DIR" "$HOME/.local/share/code-server/User"
   cp /opt/craft-code/settings.json "$HOME/.local/share/code-server/User/settings.json"
 
 latest() { curl -fsS --max-time 15 "https://open-vsx.org/api/${1%%.*}/${1#*.}" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true; }
+# This machine's VS Code platform. Claude Code ships one file per platform, and Open VSX's plain
+# version URL answers with any of them (alpine-arm64 first), so fromFile asks for this one.
+case $(uname -m) in
+  x86_64) PLATFORM=linux-x64 ;;
+  aarch64 | arm64) PLATFORM=linux-arm64 ;;
+  armv7l) PLATFORM=linux-armhf ;;
+  *) PLATFORM="" ;;
+esac
 fromFile() {
   [ -n "$2" ] || return 1
-  url=$(curl -fsS --max-time 15 "https://open-vsx.org/api/${1%%.*}/${1#*.}/$2" 2>/dev/null | jq -r '.files.download // empty' 2>/dev/null) || return 1
+  api="https://open-vsx.org/api/${1%%.*}/${1#*.}"
+  # The platform's own file first; an extension with one file for all platforms answers 404 there.
+  meta=$({ [ -n "$PLATFORM" ] && curl -fsS --max-time 15 "$api/$PLATFORM/$2"; } 2>/dev/null ||
+    curl -fsS --max-time 15 "$api/$2" 2>/dev/null) || return 1
+  case $(printf '%s' "$meta" | jq -r '.targetPlatform // "universal"' 2>/dev/null) in
+    universal | "$PLATFORM") ;;
+    *) return 1 ;;
+  esac
+  url=$(printf '%s' "$meta" | jq -r '.files.download // empty' 2>/dev/null)
   [ -n "$url" ] || return 1
   file=$(mktemp --suffix .vsix)
   curl -fsSL --max-time 300 -o "$file" "$url" && code-server --install-extension "$file" --force >/dev/null 2>&1
@@ -206,6 +222,14 @@ fromFile() {
 installed=$(code-server --list-extensions --show-versions 2>/dev/null || true)
 for ext in anthropic.claude-code hayone1.craft-vscode $(printf '%s' "${EXTENSIONS:-}" | tr ',' ' '); do
   have=$(printf '%s\n' "$installed" | grep -i "^$ext@" | head -n1 | cut -d@ -f2 || true)
+  # A copy built for another platform (installed by an older start.sh) can't run its own program:
+  # install it again. Only extensions that ship a native program have one to check.
+  for bin in "$HOME/.local/share/code-server/extensions/$ext-$have"*/resources/native-binary/*; do
+    if [ -n "$have" ] && [ -f "$bin" ] && [ -x "$bin" ] && ! timeout 30 "$bin" --version >/dev/null 2>&1; then
+      say "$ext $have was built for another platform; installing it again"
+      have=""
+    fi
+  done
   want=""
   if [ -z "$have" ] || [ "${UPDATE_EXTENSIONS:-true}" != false ]; then want=$(latest "$ext"); fi
   if [ -z "$have" ] || { [ -n "$want" ] && [ "$want" != "$have" ]; }; then
