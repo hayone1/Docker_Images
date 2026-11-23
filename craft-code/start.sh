@@ -33,6 +33,17 @@ mkdir -p "$STATE" && chmod 700 "$STATE"
 say() { printf '[craft-code] %s\n' "$*"; }
 random() { head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
 
+# Warn about a small home volume or memory limit: VS Code, Claude Code and an app's agent tools
+# need about 2 GB of memory, and the extensions need about 1 GB of disk.
+mem=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || true)
+if [ -n "$mem" ] && [ "$mem" != max ] && [ "$mem" -lt 1900000000 ]; then
+  say "warning: the memory limit is $((mem / 1048576)) MB. Give the studio 2 GB or more, or VS Code and Claude Code may be stopped for lack of memory."
+fi
+free=$(df -Pk "$HOME" 2>/dev/null | awk 'NR == 2 { print $4 }')
+if [ -n "$free" ] && [ "$free" -lt 1048576 ]; then
+  say "warning: only $((free / 1024)) MB is free in $HOME. Give the home volume 5 GB or more."
+fi
+
 # ---- the public address ------------------------------------------------------------------------
 if [ -z "${PUBLIC_URL:-}" ]; then
   if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]; then PUBLIC_URL="https://$RAILWAY_PUBLIC_DOMAIN"
@@ -224,10 +235,17 @@ for ext in anthropic.claude-code hayone1.craft-vscode $(printf '%s' "${EXTENSION
   have=$(printf '%s\n' "$installed" | grep -i "^$ext@" | head -n1 | cut -d@ -f2 || true)
   # A copy built for another platform (installed by an older start.sh) can't run its own program:
   # install it again. Only extensions that ship a native program have one to check.
-  for bin in "$HOME/.local/share/code-server/extensions/$ext-$have"*/resources/native-binary/*; do
+  set +f # file name patterns on (the script runs with set -f)
+  bins=("$HOME/.local/share/code-server/extensions/$ext-$have"*/resources/native-binary/*)
+  set -f
+  for bin in "${bins[@]}"; do
     if [ -n "$have" ] && [ -f "$bin" ] && [ -x "$bin" ] && ! timeout 30 "$bin" --version >/dev/null 2>&1; then
       say "$ext $have was built for another platform; installing it again"
+      # The same version again with --force keeps the broken files: remove the copy first.
+      code-server --uninstall-extension "$ext" >/dev/null 2>&1 || true
+      for dir in "${bins[@]}"; do rm -rf "${dir%/resources/native-binary/*}"; done
       have=""
+      break
     fi
   done
   want=""
@@ -243,9 +261,21 @@ for ext in anthropic.claude-code hayone1.craft-vscode $(printf '%s' "${EXTENSION
   fi
 done
 
-if [ "${CLAUDE_CLI:-true}" != false ] && ! command -v claude >/dev/null; then
-  (curl -fsSL https://claude.ai/install.sh | bash >/tmp/claude-install.log 2>&1 ||
-    say "couldn't install the Claude Code command; see /tmp/claude-install.log") &
+# The Claude Code command for the terminal. The extension already carries the same program, so link
+# that one (no second copy of about 200 MB on the volume); download it only when there is none.
+if [ "${CLAUDE_CLI:-true}" != false ]; then
+  set +f
+  bins=("$HOME"/.local/share/code-server/extensions/anthropic.claude-code-*/resources/native-binary/claude)
+  set -f
+  bin=$(printf '%s\n' "${bins[@]}" | sort -V | tail -n1)
+  [ -e "$bin" ] || bin=""
+  link="$HOME/.local/bin/claude"
+  if [ -n "$bin" ] && timeout 30 "$bin" --version >/dev/null 2>&1; then
+    if [ -L "$link" ] || [ ! -e "$link" ]; then mkdir -p "$HOME/.local/bin" && ln -sfn "$bin" "$link"; fi
+  elif ! command -v claude >/dev/null; then
+    (curl -fsSL https://claude.ai/install.sh | bash >/tmp/claude-install.log 2>&1 ||
+      say "couldn't install the Claude Code command; see /tmp/claude-install.log") &
+  fi
 fi
 
 say "Open $PUBLIC_URL"
