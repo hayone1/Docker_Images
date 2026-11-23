@@ -183,16 +183,17 @@ EOF
 } > "$CADDYFILE"
 
 pids=()
+declare -A names=() # pid: the part it runs, for the log when it stops
 stop() { kill "${pids[@]}" 2>/dev/null || true; }
 trap stop EXIT INT TERM
 
 XDG_DATA_HOME=/tmp/caddy XDG_CONFIG_HOME=/tmp/caddy caddy run --config "$CADDYFILE" --adapter caddyfile &
-pids+=($!)
+pids+=($!) names[$!]=Caddy
 
 if [ "$inside_relay" = true ]; then
   (cd /opt/craft-mcp && exec env PORT=8081 MCP_KEY="${MCP_KEY:-$STUDIO_MCP_KEY}" PUBLIC_HOST="$PUBLIC_URL/relay" \
     MINT_TOKENS="$STUDIO_MINT_TOKEN" node relay.mjs) &
-  pids+=($!)
+  pids+=($!) names[$!]="the relay"
 fi
 unset MCP_KEY
 
@@ -282,9 +283,15 @@ say "Open $PUBLIC_URL"
 # code-server would listen on $PORT (Caddy's port) instead of --bind-addr.
 env -u PORT code-server --bind-addr 127.0.0.1:8443 --auth "$AUTH" --disable-telemetry --disable-update-check \
   --app-name "Craft Code" "$PROJECT_DIR" &
-pids+=($!)
+pids+=($!) names[$!]=code-server
 
 # Stop when any part stops, so the host restarts the whole container.
-wait -n "${pids[@]}" || true
-say "a process stopped; stopping the container"
+status=0
+wait -n -p stopped "${pids[@]}" || status=$?
+why="exit code $status"
+# 137 is SIGKILL, which the kernel sends when the container runs out of memory.
+[ "$status" = 137 ] && why="killed (exit code 137), most likely for lack of memory"
+part="a process"
+[ -n "${stopped:-}" ] && part=${names[$stopped]:-a process}
+say "$part stopped ($why); stopping the container"
 exit 1

@@ -3,5 +3,7 @@
   "workbench.startupEditor": "none",
   "security.workspace.trust.enabled": false,
   "files.autoSave": "afterDelay",
-  "claudeCode.preferredLocation": "panel"
+  "claudeCode.preferredLocation": "panel",
+  "chat.disableAIFeatures": true,
+  "workbench.secondarySideBar.defaultVisibility": "hidden"
 }
